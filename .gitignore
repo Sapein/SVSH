@@ -1,0 +1,4 @@
+*.sw[a-z]
+*.o
+*.gch
+svsh_dev
