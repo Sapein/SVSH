@@ -17,8 +17,10 @@ fs/files.o: fs/files.c fs/files.h
 
 clean:
 	rm *.o */*.o || true
+	rm *.gch || true
 
 fullclean:
 	rm *.o */*.o || true
+	rm *.gch || true
 	rm svsh_dev || true
 
