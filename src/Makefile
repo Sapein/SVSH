@@ -1,9 +1,9 @@
 .POSIX:
 
 CC = cc
-CFLAGS = -g -H -Wall -Wpedantic -Wextra -O0
+CFLAGS = -g -Wall -Wpedantic -Wextra -O0
 LDLIBS = -lm
-LDFLAGS = -g -H
+LDFLAGS = -g
 PREFIX = /usr/local
 
 all: svsh
