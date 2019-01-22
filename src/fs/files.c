@@ -3,45 +3,45 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "files.h"
+#include "../config.h"
 
-static uint8_t *_root_mem = NULL;
-static uint8_t *_free_memory = NULL;
-static struct SVSH_FS_File *_files = NULL;
-struct SVSH_FS_File {
-    uint32_t file_size; /* This is the size of the file in Bytes for DATA and child count for FOLDERS */
-    uint8_t permissions; /* Permission layout is as follows (in order of bytes RWX0) */
-    enum SVSH_FS_FileType type;
-    char name[sizeof(uint32_t)];
-    struct SVSH_FS_File *parent;
-    void **data;
+static uint8_t *_file_memory = NULL; /* The whole memory space, points to the start of the normal address space */
+static uint8_t *_free_memory = NULL; /* Points to the closest free memory */
+static uint8_t *_fslt_ptr = NULL; /* Points to the start of the File System Lookup Table (fslt) */
+
+struct AFile {
+    uint8_t permissions; /* 1 byte */ /* addr 0 */
+    char name[3];
+    uint32_t file_size;  /* 4 bytes, addr / 4 */
+    uint8_t *block_1; /* 4 or 6 bytes */
+    uint8_t *block_2; /* 4 or 6 bytes */
+};
+/* Size = 16 bytes (32 bit) ; 20 bytes (64 bit) */
+
+/* Keep to half ot AFile */
+struct EFSLT_Node {
+    uint32_t file_size; /* 4 bytes, addr / 4 */
+    uint8_t *efslt_ptr; /* 4 or 6 bytes */
+}; /* Size = 8 bytes (32 bit) ; 10 bytes (64 bit) */
+
+struct EFSLT_Link {
+    uint32_t parent_size;
+    uint8_t *parent;
 };
 
-struct SVSH_FS_Folder { /*TODO: Make this actually work better with the way we have things structured*/
-    struct SVSH_FS_File *children;
-};
+uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size);
+void *_SVSH_FS_EFSLTCreate(uint32_t size, uint8_t *parent);
+void _SVSH_FS_EFSLTDestroy(uint8_t *efslt, uint32_t efslt_size);
+_Bool _SVSH_FS_FSLTDestroy(void);
 
-struct SVSH_FS_Data {
-    char *data;
-};
-
-_Bool SVSH_FS_Init(uint32_t filesystem_size){
+_Bool SVSH_FS_Init(uint32_t fs_size){
     _Bool success = false;
-    uint8_t *offset_ptr = NULL;
-    struct SVSH_FS_File root = {.file_size = filesystem_size, .permissions = 0xFF, .type = ROOT,
-                                .data = NULL, .parent = NULL, .name={0}};
-    struct SVSH_FS_Folder *f = NULL;
-    if((_free_memory = malloc(filesystem_size * sizeof(uint8_t))) != NULL){
-        if(memset(_free_memory, 0, filesystem_size) == _free_memory){
-            _root_mem = _free_memory, offset_ptr = _free_memory;
-            offset_ptr += sizeof(struct SVSH_FS_File);
-            f = (struct SVSH_FS_Folder *)offset_ptr;
-            f->children = NULL;
-            root.data = (void *)&f;
-            if(memcpy(_free_memory, &root, sizeof(struct SVSH_FS_File)) == _free_memory){
-                _files = (struct SVHS_FS_File *)_free_memory; /* Move root over to _files */
-                _free_memory  = _free_memory + sizeof(struct SVSH_FS_File);
-                _free_memory = _free_memory + sizeof(struct SVSH_FS_Folder); /* Increase _free_memory's pointer to the next free space */
-                offset_ptr = NULL;
+    if((_file_memory = malloc(fs_size * sizeof(uint8_t))) != NULL){
+        if(memset(_file_memory, 0, fs_size) == _file_memory){
+            _fslt_ptr = _file_memory;
+            _file_memory = _file_memory + _SVSH_FS_FSLTCreate(fs_size);
+            if(_file_memory != _fslt_ptr){
+                _free_memory = _file_memory;
                 success = true;
             }
         }
@@ -49,12 +49,144 @@ _Bool SVSH_FS_Init(uint32_t filesystem_size){
     return success;
 }
 
+
 _Bool SVSH_FS_Shutdown(_Bool clobber_data){
     _Bool success = false;
-    if(clobber_data && _free_memory != NULL){
-        success = true;
-        free(_free_memory);
-        _free_memory = NULL;
+    if(clobber_data && _fslt_ptr != NULL){
+        _SVSH_FS_FSLTDestroy();
+        free(_fslt_ptr);
     }
     return success;
+}
+
+uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size){
+    uint32_t fslt_size = 0;
+    uint8_t *fslt = _fslt_ptr;
+    struct EFSLT_Node *node = NULL;
+    if((fs_size / FS_FSLT_SIZE) > (sizeof(struct AFile) + (2 * sizeof(struct EFSLT_Node)))){
+        fslt_size = fs_size / FS_FSLT_SIZE;
+        fslt += fslt_size;
+        fslt -= sizeof(struct EFSLT_Node) * 2;
+        node = (struct EFSLT_Node *)fslt;
+        node->file_size = 0;
+        node->efslt_ptr = NULL;
+        fslt += sizeof(struct EFSLT_Node);
+        node = (struct EFSLT_Node *)fslt;
+        node->file_size = 0;
+        node->efslt_ptr = NULL;
+    }
+    return fslt_size;
+}
+
+_Bool _SVSH_FS_FSLTDestroy(void){
+    uint32_t fslt_size = (_file_memory - _fslt_ptr);
+    _Bool success = false;
+    if(memset(_fslt_ptr, 0, fslt_size) == _fslt_ptr){
+        success = true;
+    }
+    return success;
+}
+
+void *_SVSH_FS_EFSLTCreate(uint32_t size, uint8_t *parent){
+    uint8_t *efslt_ptr = NULL;
+    struct EFSLT_Node *node = NULL;
+    struct EFSLT_Link *link = NULL;
+    if(_free_memory != NULL){
+        _free_memory += size;
+        efslt_ptr = _free_memory - size;
+        efslt_ptr += size;
+        node = (struct EFSLT_Node *)efslt_ptr;
+        node -= 2;
+        node->file_size = 0;
+        node->efslt_ptr = NULL;
+        node += 1;
+        node->file_size = 0;
+        node->efslt_ptr = NULL;
+        efslt_ptr -= size;
+        link = (struct EFSLT_Link *)efslt_ptr;
+        if(parent != NULL){
+            uint8_t *sp = NULL;
+            uint32_t sp_size = 0;
+            if(parent != _fslt_ptr){
+                sp_size = ((struct EFSLT_Link *)parent)->parent_size;
+                sp = ((struct EFSLT_Link *)parent)->parent;
+                if(sp != _fslt_ptr){
+                    sp += sp_size;
+                    sp -= sizeof(struct EFSLT_Link *) * 2;
+                    if(((struct EFSLT_Node *)sp)->efslt_ptr == parent){
+                        link->parent_size = ((struct EFSLT_Node *)sp)->file_size;
+                    }
+                    sp += sizeof(struct EFSLT_Link *);
+                    if(((struct EFSLT_Node *)sp)->efslt_ptr == parent){
+                        link->parent_size = ((struct EFSLT_Node *)sp)->file_size;
+                    }else{
+                        memset(efslt_ptr, 0, size);
+                        if((efslt_ptr+size) == _free_memory){
+                            _free_memory = efslt_ptr;
+                        }
+                        efslt_ptr = NULL;
+                    }
+                }else{
+                    link->parent_size = (_file_memory - _fslt_ptr);
+                }
+            }else{
+                    link->parent_size = (_file_memory - _fslt_ptr);
+            }
+            link->parent = parent;
+
+        }else{
+            link->parent_size = (_file_memory - _fslt_ptr);
+            link->parent = _fslt_ptr;
+        }
+    }
+    return efslt_ptr;
+}
+
+void _SVSH_FS_EFLSTDestroy(uint8_t *efslt, uint32_t efslt_size){
+    struct EFSLT_Link *link = (struct EFSLT_Link *)efslt;
+    struct EFSLT_Node *node = NULL;
+    uint8_t *scrubb_ptr = NULL;
+    if(link != NULL){
+        scrubb_ptr = link->parent;
+        node = (struct EFSLT_Node *)(scrubb_ptr + link->parent_size);
+        node -= 2;
+        if(node->efslt_ptr != NULL){
+            if(node->efslt_ptr == efslt){
+                node->efslt_ptr = NULL;
+                if(efslt_size != node->file_size){
+                    efslt_size = node->file_size;
+                }
+                node->file_size = 0;
+                if((node + 1)->efslt_ptr != NULL){
+                    node->efslt_ptr = (node + 1)->efslt_ptr;
+                    node->file_size = (node + 1)->file_size;
+                    node++;
+                    goto remove;
+                }
+            }
+            node++;
+            if(node->efslt_ptr == efslt){
+remove:
+                node->efslt_ptr = NULL;
+                if(efslt_size != node->file_size){
+                    efslt_size = node->file_size;
+                }
+                node->file_size = 0;
+            }
+
+        }
+        scrubb_ptr = NULL;
+        node = NULL;
+        *efslt += efslt_size;
+        node = (struct EFSLT_Node*)efslt;
+        node -= 2;
+check:
+        if(node->efslt_ptr != NULL){
+            _SVSH_FS_EFLSTDestroy(node->efslt_ptr, node->file_size);
+            node++;
+            goto check;
+        }
+        memset(efslt, 0, efslt_size);
+        /* We will want to Defragment after this, but for now we won't, so it can be left to the caller.*/
+    }
 }
