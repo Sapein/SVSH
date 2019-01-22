@@ -8,6 +8,7 @@
 static uint8_t *_file_memory = NULL; /* The whole memory space, points to the start of the normal address space */
 static uint8_t *_free_memory = NULL; /* Points to the closest free memory */
 static uint8_t *_fslt_ptr = NULL; /* Points to the start of the File System Lookup Table (fslt) */
+static uint32_t _fs_size = 0;
 
 struct AFile {
     uint8_t permissions; /* 1 byte */ /* addr 0 */
@@ -42,6 +43,7 @@ _Bool SVSH_FS_Init(uint32_t fs_size){
             _file_memory = _file_memory + _SVSH_FS_FSLTCreate(fs_size);
             if(_file_memory != _fslt_ptr){
                 _free_memory = _file_memory;
+                _fs_size = fs_size;
                 success = true;
             }
         }
@@ -189,4 +191,62 @@ check:
         memset(efslt, 0, efslt_size);
         /* We will want to Defragment after this, but for now we won't, so it can be left to the caller.*/
     }
+}
+
+_Bool SVSH_FS_Defragment(void){
+    _Bool success = false;
+    uint8_t *mem = NULL;
+    struct AFile *f = NULL;
+    struct AFile zero_f = {0};
+    uint8_t *dead_files = calloc(_fs_size, sizeof(uint8_t));
+    /* We absolutely need to lock access to memory here if we thread this */
+    if(_fslt_ptr != NULL){
+        mem = _fslt_ptr;
+
+        /* Find open/dead memory */
+        for(int i = 0, f = (struct AFile *)mem; (uint8_t *)f == _file_memory || i >= _fs_size; f++){
+            if(memcmp(f, &zero_f, sizeof(struct AFile)) != 0){
+                if(f->block_2 != NULL && f->block_1 == NULL){
+                    /* Move block_2 to block_1, if block_1 is NULL */
+                    f->block_1 = f->block_2;
+                    f->block_2 = NULL;
+                }
+
+                if(f->block_1 != NULL){
+                    if(f->block_1 > _file_memory){
+                        /* If it is greater than _file_memory, check if there are any EFSLT's */
+efslt_check:
+                        if((struct EFSLT_Node *)(_file_memory - (sizeof(EFSLT_Node) * 2))->parent != NULL){
+                            /* There is at least one EFLST */
+                            ;
+                        }else if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
+                            /* There is an EFSLT that's not added properly */
+                            if(memcmp(memcpy((_file_memory - (sizeof(EFSLT_Node) * 2)),
+                                             (_file_memory - sizeof(EFSLT_Node)),
+                                             sizeof(EFSLT_Node)),
+                                      (_file_memory - sizeof(EFSLT_Node))) == 0){
+                                memset((_file_memory - sizeof(EFSLT_Node)), 0, sizeof(EFSLT_Node));
+                                goto efslt_check;
+                            }
+                        }else{
+                            /* It is NOT a meta-block */
+                        }
+                    }else{
+                        /* It IS a meta_block */
+                    }
+
+                    /* Check to see if block_2 is not NULL, and if it isn't a 'meta-block' */
+                }else{
+                    /* The block is dead, so mark as dead and then move on */
+                    dead_files[i] = (uint8_t *)f;
+                    i++;
+                }
+            }
+        }
+
+        /* Set open/dead memory to zero */
+
+    }
+    free(dead_files);
+    return true;
 }
