@@ -231,21 +231,60 @@ uint8_t *_SVSH_FS_TraverseMetaBlocks(uint8_t *mem, _Bool efslt_exists, uint8_t *
         }else if(amem->block_1 == NULL && amem->block_2 == NULL){
             _actual_data_block = NULL;
         }else{
-traverse_block_check:
+traverse_block_check_a:
             if(amem->block_1 != NULL){
-                _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
+                if(amem->block_1 < _file_memory){
+                    _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
+                }else{
+                    _actual_data_block = amem->block_1;
+                }
             }else if(amem->block_2 != NULL){
                 amem->block_1 = amem->block_2;
                 amem->block_2 = NULL;
-                goto traverse_block_check;
+                goto traverse_block_check_a;
             }
-            if(amem->block_2 != NULL and amem->block_1 != NULL && _actual_data_block == NULL){
-                _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_2, efslt_exists, original_mem);
+            if(amem->block_2 != NULL && amem->block_1 != NULL && _actual_data_block == NULL){
+                if(amem->block_2 < _file_memory){
+                    _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_2, efslt_exists, original_mem);
+                }else{
+                    _actual_data_block = amem->block_2;
+                }
             }
         }
     }else{
         /* Add this in later */
-#warning EFSLT Support not included in traversal!
+        if(mem >= _file_memory){
+traverse_block_check_b:
+            /* This is potentially regular data, or EFSLT data, we need to check. */
+            /* What we need to do is get each EFSLT that exists and store it's size and location,
+             *  then we can check the address of mem (and it's blocks) against the EFSLT's.
+             * If the addresses are in between the EFSLT space (for any one of them), then we
+             *  know it's a meta-block and need to check it. */
+#error Actually Write the EFSLT stuff
+        }else if(amem_block->block_1 == NULL && amem->block_2 == NULL){
+            _actual_data_block = NULL;
+        }else{
+traverse_block_check_c:
+            if(amem->block_1 != NULL){
+                if(amem_block->block_1 < _file_memory){
+                    actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
+                }else{
+                    goto traverse_block_check_efslt_b;
+                }
+            }else if(amem->block_2 != NULL){
+                amem->block_1 = amem->block_2;
+                amem->block_2 = NULL;
+                goto traverse_block_check_c;
+            }
+            if(amem->block_2 != NULL && amem->block_1 != NULL && _actual_data_block == NULL){
+                if(amem->block_2 < _file_memory){
+                    _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_2, efslt_exists, original_mem);
+                }else{
+                    /* Insert code here */
+#error Actually write the code to deal with the second block.
+                }
+            }
+        }
     }
     return _actual_data_block;
 }
