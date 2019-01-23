@@ -216,6 +216,40 @@ _Bool _SVSH_FS_AnyEFSLT(uint8_t *blocks_out){
     return efslt_exists;
 }
 
+uint8_t *_SVSH_FS_TraverseMetaBlocks(uint8_t *mem, _Bool efslt_exists, uint8_t *original_mem){
+    uint8_t *_actual_data_block = NULL;
+    struct AFile *amem = (struct AFile *)mem;
+    if(original_mem != NULL && mem == original_mem){
+        return _actual_data_block;
+    }else if(original_mem == NULL){
+        original_mem = mem;
+    }
+
+    if(!efslt_exists){
+        if(mem >= _file_memory){
+            _actual_data_block = mem;
+        }else if(amem->block_1 == NULL && amem->block_2 == NULL){
+            _actual_data_block = NULL;
+        }else{
+traverse_block_check:
+            if(amem->block_1 != NULL){
+                _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
+            }else if(amem->block_2 != NULL){
+                amem->block_1 = amem->block_2;
+                amem->block_2 = NULL;
+                goto traverse_block_check;
+            }
+            if(amem->block_2 != NULL and amem->block_1 != NULL && _actual_data_block == NULL){
+                _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_2, efslt_exists, original_mem);
+            }
+        }
+    }else{
+        /* Add this in later */
+#warning EFSLT Support not included in traversal!
+    }
+    return _actual_data_block;
+}
+
 void _SVSH_FS_Degragment(void){
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
@@ -231,6 +265,7 @@ void _SVSH_FS_Degragment(void){
     _Bool efslt_exists = false;
     uint8_t efslt_links = 0;
     uint8_t *mem = _fslt_ptr;
+    uint8_t *scratch = NULL;
     struct AFile *dead_afiles = NULL;
     struct AFile zero_file = {.block_1 = NULL, .block_2 = NULL, .permissions=0, .name={0}, .file_size=0};
     uint8_t *zero_file = NULL;
@@ -308,7 +343,36 @@ block_1_check_b:
                         }else{
                             /* It is, in fact, a meta-block */
                             /* So we have to follow the block all the way down */
-                            /* Do that here */
+                            if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_1, efslt_exists, NULL)) == NULL){
+                                /* If this is a data-less meta-block (or a looped meta-block) ...*/
+                                if(temp_afile->block_2 != NULL){
+                                    /* Check the next block */
+                                    if(temp_afile->block_2 >= _file_memory){
+                                        /* If it's not a meta-block */
+                                        temp_afile->block_1 = temp_afile->block_2;
+                                        goto block_1_check_b;
+                                    }else{
+                                        /* Check this one as well */
+                                        if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL)) == NULL){
+                                            temp_afile->block_1 = NULL;
+                                            temp_afile->block_2 == NULL;
+                                            dead_afiles[i] = mem;
+                                            i++;
+                                        }else{
+                                            temp_afile->block_1 = temp_afile->block_2;
+                                            temp_afile->block_2 = NULL;
+                                        }
+                                    }
+                                }else{
+                                    temp_afile->block_1 = NULL;
+                                    dead_afiles[i] = mem;
+                                    i++;
+                                }
+                            }else if(temp_afile->block_2 != NULL && temp_afile->block_2 < _file_memory &&
+                                     _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL) != NULL){
+                                /* If this is a bad meta-block */
+                                temp_afile->block_2 = NULL;
+                            }
                         }
                     }else if(temp_afile->block_2 != NULL){
                         /* If the second block exists, but not the first */
