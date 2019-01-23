@@ -193,15 +193,54 @@ check:
     }
 }
 
+/* blocks_out is either 0, 1, 2, or 3
+ * 0 = No Blocks
+ * 1 = 1 Block
+ * 2 = 2 Blocks
+ * 3 = 1 Block, but incorrectly set
+ */
+_Bool _SVSH_FS_AnyEFSLT(uint8_t *blocks_out){
+    _Bool efslt_exists = false;
+    *blocks_out = 0;
+    if((struct EFSLT_Node *)(_file_memory - (sizeof(EFSLT_Node) * 2))->parent != NULL){
+        efslt_exists = true;
+        if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
+            *blocks_out = 2;
+        }else{
+            *blocks_out = 1;
+        }
+    }else if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
+        /* There is an EFSLT that's not linked properly */
+        *blocks_out = 3;
+    }
+    return efslt_exists;
+}
+
 _Bool SVSH_FS_Defragment(void){
     _Bool success = false;
     uint8_t *mem = NULL;
     struct AFile *f = NULL;
     struct AFile zero_f = {0};
+    uint8_t *zero_block = NULL;
     uint8_t *dead_files = calloc(_fs_size, sizeof(uint8_t));
+    _Bool efslt_exists = false;
+    uint8_t efslt_t = 0;
     /* We absolutely need to lock access to memory here if we thread this */
-    if(_fslt_ptr != NULL){
+
+    efslt_exists = _SVSH_FS_AnyEFSLT(*efslt_t);
+
+    if(_fslt_ptr != NULL && ((zero_block = calloc(1, FS_BLOCK_SIZE)) != NULL)){
         mem = _fslt_ptr;
+
+        while((efslt_exists = _SVSH_FS_AnyEFSLT(&efslt_t)) == true && efslt_t == 3){
+            /* Check and fix-up the EFSLT links in the FSLT */
+            if(memcmp(memcpy((_file_memory - (sizeof(EFSLT_Node) * 2)),
+                            (_file_memory - sizeof(EFSLT_Node)),
+                            sizeof(EFSLT_Node)),
+                        (_file_memory - sizeof(EFSLT_Node))) == 0){
+                memset((_file_memory - sizeof(EFSLT_Node)), 0, sizeof(EFSLT_Node));
+            }
+        }
 
         /* Find open/dead memory */
         for(int i = 0, f = (struct AFile *)mem; (uint8_t *)f == _file_memory || i >= _fs_size; f++){
@@ -213,23 +252,33 @@ _Bool SVSH_FS_Defragment(void){
                 }
 
                 if(f->block_1 != NULL){
-                    if(f->block_1 > _file_memory){
-                        /* If it is greater than _file_memory, check if there are any EFSLT's */
-efslt_check:
-                        if((struct EFSLT_Node *)(_file_memory - (sizeof(EFSLT_Node) * 2))->parent != NULL){
-                            /* There is at least one EFLST */
-                            ;
-                        }else if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
-                            /* There is an EFSLT that's not added properly */
-                            if(memcmp(memcpy((_file_memory - (sizeof(EFSLT_Node) * 2)),
-                                             (_file_memory - sizeof(EFSLT_Node)),
-                                             sizeof(EFSLT_Node)),
-                                      (_file_memory - sizeof(EFSLT_Node))) == 0){
-                                memset((_file_memory - sizeof(EFSLT_Node)), 0, sizeof(EFSLT_Node));
-                                goto efslt_check;
-                            }
+                    if(f->block_1 > _file_memory && efslt_exists){
+                        /* If it is greater than _file_memory and there is are EFSLT */
+                        /* Then check through the EFSLT's */
+                        ;
+                    }else{
+                        /* There are no EFSLT's, so it is NOT a meta-block */
+                        /* If there are no EFSLT's, and Block 1 is not a meta-block, check the next block */
+                        if(memcmp(f->block_1, zero_block, FS_BLOCK_SIZE) == 0){
+                            /* This is a Zero block, so we need to check block_2 */
+                            if(f->block_2 != NULL && f->block_2 > _file_memory && memcmp(f->block_2, zero_block, FS_BLOCK_SIZE) == 0){
+                                /* This is also a Zero Block, so the AFile is a dead file */
+                                f->block_1 = NULL;
+                                f->block_2 = NULL;
+                                dead_files[i] = (uint8_t *)f;
+                                i++;
+                            }else if(f->block_2 != NULL && f->block_2 > _file_memory){
+                                /* Block_2 IS NOT a Zero Block */
+                                f->block_1 = f->block_2;
+                                f->block_2 = NULL;
+                            }else if(f->block_2 != NULL && f->block_2 
                         }else{
-                            /* It is NOT a meta-block */
+                            /* This is not a zero block, so we can check block_2 */
+                            if(f->block_2 != NULL && f->block_2 > _file_memory && memcmp(f->block_2, zero_block, FS_BLOCK_SIZE) == 0){
+                                /* This is also a Zero Block, so the AFile is a dead file */
+                                dead_files[i] = (uint8_t *)f;
+                                i++;
+                            }
                         }
                     }else{
                         /* It IS a meta_block */
