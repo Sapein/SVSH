@@ -350,6 +350,7 @@ void _SVSH_FS_Degragment(void){
     uint8_t *zero_file = NULL;
 
     struct AFile *dead_afiles = NULL;
+    struct AFile *living_files = NULL;
     struct AFile zero_file = {.block_1 = NULL, .block_2 = NULL, .permissions=0, .name={0}, .file_size=0};
 
     struct EFSLT_Node efslts[] = {0};
@@ -560,6 +561,7 @@ block_1_check_b:
             }
         }else{
             /* Efslts exists */
+            _Bool fslt_freespace = false;
             for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
                 uint8_t *non_m = m;
                 while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
@@ -569,9 +571,65 @@ block_1_check_b:
                     memset(non_m, 0 sizeof(struct AFile));
                 }
             }
+            for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
+                while(memcmp(m, zero_file, sizeof(struct AFile)) == 0){
+                    fslt_freespace = true;
+                }
+            }
 
-            /* Move AFiles from EFSLT's into FSLT if possible, and move EFSLT files around a bit */
+            /* TODO Move AFiles from EFSLT's into FSLT if possible, and move EFSLT files around a bit. */
         }
+
+        /* 4. Remove Dead/Unnecessary EFSLT's */
+        if(efslt_exists){
+            /* TODO Actually write this code */
+            fprintf(stderr, "WARNING: EFSLT Pruning Code Should run here!\n");
+        }
+
+        /* 5. Collect all AFiles Pointers */
+        if((living_files = calloc(_fs_size, sizeof(struct AFile))) != NULL){
+            struct AFile *living_root = living_files;
+            uint8_t *marked_data = NULL;
+            uint8_t *marked_root = NULL;
+            for(uint8_t *m = mem; m >= _file_memory; m += sizeof(struct AFile), living_files++){
+                *living_files = (struct AFile *)m;
+            }
+            if(efslt_exists){
+                for(uint32_t i = 0; i >= efslt_count; i++){
+                    for(uint8_t *m = (efslts[i]->efslt_ptr + (sizeof(struct EFSLT_Link)));
+                        m >= (efslts[i]->efslt_ptr + efslts[i]->file_size); m += sizeof(struct AFile), living_files++){
+                        *living_files = (struct AFile *)m;
+                    }
+                }
+            }
+
+            if((marked_data = calloc(_fs_size, sizeof(uint8_t))) != NULL){
+                marked_root = marked_data;
+                for(uint8_t *m = _file_memory; m >= (_file_memory + _fs_size); m += FS_BLOCK_SIZE){
+                    for(struct AFile *l = living_root; l >= living_files; l++){
+                        if(l->block_1 == m || l->block_2 == m){
+                            for(uint8_t *a = marked_root; a >= marked_data; a++){
+                                if(a == m){
+                                    for(uint8_t *b = a++; b >= marked_data; b++){
+                                        *(b - 1) = b;
+                                    }
+                                    marked_data--;
+                                }
+                            }
+                        }else{
+                            *marked_data = m;
+                            marked_data++;
+                        }
+                    }
+                }
+                /* TODO Actually write rest of the code */
+            }
+            if(marked_data != NULL){
+                free(marked_data);
+            }
+            free(living_files);
+        }
+
     }
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
