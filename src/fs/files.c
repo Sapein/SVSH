@@ -19,20 +19,7 @@ struct AFile {
 };
 /* Size = 16 bytes (32 bit) ; 20 bytes (64 bit) */
 
-/* Keep to half ot AFile */
-struct EFSLT_Node {
-    uint32_t file_size; /* 4 bytes, addr / 4 */
-    uint8_t *efslt_ptr; /* 4 or 6 bytes */
-}; /* Size = 8 bytes (32 bit) ; 10 bytes (64 bit) */
-
-struct EFSLT_Link {
-    uint32_t parent_size;
-    uint8_t *parent;
-};
-
 uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size);
-void *_SVSH_FS_EFSLTCreate(uint32_t size, uint8_t *parent);
-void _SVSH_FS_EFSLTDestroy(uint8_t *efslt, uint32_t efslt_size);
 _Bool _SVSH_FS_FSLTDestroy(void);
 
 _Bool SVSH_FS_Init(uint32_t fs_size){
@@ -64,18 +51,9 @@ _Bool SVSH_FS_Shutdown(_Bool clobber_data){
 uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size){
     uint32_t fslt_size = 0;
     uint8_t *fslt = _fslt_ptr;
-    struct EFSLT_Node *node = NULL;
-    if((fs_size / FS_FSLT_SIZE) > (sizeof(struct AFile) + (2 * sizeof(struct EFSLT_Node)))){
+    if((fs_size / FS_FSLT_SIZE) > sizeof(struct AFile)){
         fslt_size = fs_size / FS_FSLT_SIZE;
         fslt += fslt_size;
-        fslt -= sizeof(struct EFSLT_Node) * 2;
-        node = (struct EFSLT_Node *)fslt;
-        node->file_size = 0;
-        node->efslt_ptr = NULL;
-        fslt += sizeof(struct EFSLT_Node);
-        node = (struct EFSLT_Node *)fslt;
-        node->file_size = 0;
-        node->efslt_ptr = NULL;
     }
     return fslt_size;
 }
@@ -89,136 +67,15 @@ _Bool _SVSH_FS_FSLTDestroy(void){
     return success;
 }
 
-void *_SVSH_FS_EFSLTCreate(uint32_t size, uint8_t *parent){
-    uint8_t *efslt_ptr = NULL;
-    struct EFSLT_Node *node = NULL;
-    struct EFSLT_Link *link = NULL;
-    if(_free_memory != NULL){
-        _free_memory += size;
-        efslt_ptr = _free_memory - size;
-        efslt_ptr += size;
-        node = (struct EFSLT_Node *)efslt_ptr;
-        node -= 2;
-        node->file_size = 0;
-        node->efslt_ptr = NULL;
-        node += 1;
-        node->file_size = 0;
-        node->efslt_ptr = NULL;
-        efslt_ptr -= size;
-        link = (struct EFSLT_Link *)efslt_ptr;
-        if(parent != NULL){
-            uint8_t *sp = NULL;
-            uint32_t sp_size = 0;
-            if(parent != _fslt_ptr){
-                sp_size = ((struct EFSLT_Link *)parent)->parent_size;
-                sp = ((struct EFSLT_Link *)parent)->parent;
-                if(sp != _fslt_ptr){
-                    sp += sp_size;
-                    sp -= sizeof(struct EFSLT_Link *) * 2;
-                    if(((struct EFSLT_Node *)sp)->efslt_ptr == parent){
-                        link->parent_size = ((struct EFSLT_Node *)sp)->file_size;
-                    }
-                    sp += sizeof(struct EFSLT_Link *);
-                    if(((struct EFSLT_Node *)sp)->efslt_ptr == parent){
-                        link->parent_size = ((struct EFSLT_Node *)sp)->file_size;
-                    }else{
-                        memset(efslt_ptr, 0, size);
-                        if((efslt_ptr+size) == _free_memory){
-                            _free_memory = efslt_ptr;
-                        }
-                        efslt_ptr = NULL;
-                    }
-                }else{
-                    link->parent_size = (_file_memory - _fslt_ptr);
-                }
-            }else{
-                    link->parent_size = (_file_memory - _fslt_ptr);
-            }
-            link->parent = parent;
-
-        }else{
-            link->parent_size = (_file_memory - _fslt_ptr);
-            link->parent = _fslt_ptr;
-        }
-    }
-    return efslt_ptr;
-}
-
-void _SVSH_FS_EFLSTDestroy(uint8_t *efslt, uint32_t efslt_size){
-    struct EFSLT_Link *link = (struct EFSLT_Link *)efslt;
-    struct EFSLT_Node *node = NULL;
-    uint8_t *scrubb_ptr = NULL;
-    if(link != NULL){
-        scrubb_ptr = link->parent;
-        node = (struct EFSLT_Node *)(scrubb_ptr + link->parent_size);
-        node -= 2;
-        if(node->efslt_ptr != NULL){
-            if(node->efslt_ptr == efslt){
-                node->efslt_ptr = NULL;
-                if(efslt_size != node->file_size){
-                    efslt_size = node->file_size;
-                }
-                node->file_size = 0;
-                if((node + 1)->efslt_ptr != NULL){
-                    node->efslt_ptr = (node + 1)->efslt_ptr;
-                    node->file_size = (node + 1)->file_size;
-                    node++;
-                    goto remove;
-                }
-            }
-            node++;
-            if(node->efslt_ptr == efslt){
-remove:
-                node->efslt_ptr = NULL;
-                if(efslt_size != node->file_size){
-                    efslt_size = node->file_size;
-                }
-                node->file_size = 0;
-            }
-
-        }
-        scrubb_ptr = NULL;
-        node = NULL;
-        *efslt += efslt_size;
-        node = (struct EFSLT_Node*)efslt;
-        node -= 2;
-check:
-        if(node->efslt_ptr != NULL){
-            _SVSH_FS_EFLSTDestroy(node->efslt_ptr, node->file_size);
-            node++;
-            goto check;
-        }
-        memset(efslt, 0, efslt_size);
-        /* We will want to Defragment after this, but for now we won't, so it can be left to the caller.*/
-    }
-}
-
-/* blocks_out is either 0, 1, 2, or 3
- * 0 = No Blocks
- * 1 = 1 Block
- * 2 = 2 Blocks
- * 3 = 1 Block, but incorrectly set
- */
 _Bool _SVSH_FS_AnyEFSLT(uint8_t *blocks_out){
-    _Bool efslt_exists = false;
     *blocks_out = 0;
-    if((struct EFSLT_Node *)(_file_memory - (sizeof(EFSLT_Node) * 2))->parent != NULL){
-        efslt_exists = true;
-        if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
-            *blocks_out = 2;
-        }else{
-            *blocks_out = 1;
-        }
-    }else if((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node))->parent != NULL){
-        /* There is an EFSLT that's not linked properly */
-        *blocks_out = 3;
-    }
-    return efslt_exists;
+    return false;
 }
 
 uint8_t *_SVSH_FS_TraverseMetaBlocks(uint8_t *mem, _Bool efslt_exists, uint8_t *original_mem){
     uint8_t *_actual_data_block = NULL;
     struct AFile *amem = (struct AFile *)mem;
+    efslt_exists = false;
     if(original_mem != NULL && mem == original_mem){
         return _actual_data_block;
     }else if(original_mem == NULL){
@@ -252,98 +109,62 @@ traverse_block_check_a:
             }
         }
     }else{
-        /* Add this in later */
-        if(mem >= _file_memory){
-traverse_block_check_b:
-            /* This is potentially regular data, or EFSLT data, we need to check. */
-            /* What we need to do is get each EFSLT that exists and store it's size and location,
-             *  then we can check the address of mem (and it's blocks) against the EFSLT's.
-             * If the addresses are in between the EFSLT space (for any one of them), then we
-             *  know it's a meta-block and need to check it. */
-#error Actually Write the EFSLT stuff
-        }else if(amem_block->block_1 == NULL && amem->block_2 == NULL){
-            _actual_data_block = NULL;
-        }else{
-traverse_block_check_c:
-            if(amem->block_1 != NULL){
-                if(amem_block->block_1 < _file_memory){
-                    actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
-                }else{
-                    goto traverse_block_check_efslt_b;
-                }
-            }else if(amem->block_2 != NULL){
-                amem->block_1 = amem->block_2;
-                amem->block_2 = NULL;
-                goto traverse_block_check_c;
-            }
-            if(amem->block_2 != NULL && amem->block_1 != NULL && _actual_data_block == NULL){
-                if(amem->block_2 < _file_memory){
-                    _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_2, efslt_exists, original_mem);
-                }else{
-                    /* Insert code here */
-#error Actually write the code to deal with the second block.
-                }
-            }
-        }
+        fprintf(stderr, "ERR: Somehow EFSLT's are detected!\n");
+        exit(1);
     }
     return _actual_data_block;
 }
 
-struct EFSLT_Node *_SVSH_FS_FindEFSLT(uint8_t *mem, struct EFSLT_Node array[], uint32_t *index, _Bool in_fslt, uint32_t efslt_size){
-    struct EFLST_Node *t_n = NULL;
-    if(array != NULL || (array == NULL && ((array = calloc(_fs_size, sizeof(struct EFSLT_Node))) != NULL))){
-        if(in_fslt){
-            t_n = (struct EFSLT_Node *)(_file_memory - (sizeof(struct EFSLT_Node *) * 2));
-            if(t_n->efslt_ptr != NULL){
-                array[index]->efslt_ptr = mem;
-                array[index]->file_size = t_n->file_size;
-                index++;
-                array = _SVSH_FS_FindEFSLT(t_n->efslt_ptr, array, index, false, t_n->file_size);
-            }
-            t_n = (struct EFSLT_Node *)(_file_memory - sizeof(struct EFSLT_Node *));
-            if(t_n->efslt_ptr != NULL){
-                array[index]->efslt_ptr = mem;
-                array[index]->file_size = t_n->file_size;
-                index++;
-                array = _SVSH_FS_FindEFSLT(t_n->efslt_ptr, array, index, false, t_n->file_size);
-            }
-        }else{
-            t_n = (struct EFSLT_Node *)((mem + efslt_size) - (sizeof(struct EFSLT_Node *) * 2));
-            if(t_n->efslt_ptr != NULL){
-                array[index]->efslt_ptr = mem;
-                array[index]->file_size = t_n->file_size;
-                index++;
-                array = _SVSH_FS_FindEFSLT(t_n->efslt_ptr, array, index, false, t_n->file_size);
+
+/* Path convention is going to just the UNIX convention
+ * / is root
+ * . is current directory
+ * .. is parent directory
+ * ~ is home directory
+ * the "/" is also the path separator.
+ * Absolute Paths only, for now.
+ */
+struct AFile *SVSH_FS_CreateAFile(char path[], uint8_t permissions){
+    struct AFile *new_file = NULL;
+    struct AFile *zero_file = NULL;
+    struct AFile *zero_file = calloc(1, sizeof(struct AFile));
+    _Bool is_new_file = false;
+    char *p = path;
+    if((zero_file = calloc(1, sizeof(struct AFile))) != NULL && path != NULL){
+        /* Check for existance first */
+        if(path[0] == '/'){
+            /* This is a valid path */
+            for(uint8_t m = _fslt_ptr; m >= _file_memory; m += sizeof(struct AFile)){
+                if(strncmp(((struct AFile)m)->name, path + 1, 3) == 0){
+                    if(
+                }
             }
 
-            t_n = (struct EFSLT_Node *)((mem + efslt_size) - sizeof(struct EFSLT_Node *));
-            if(t_n->efslt_ptr != NULL){
-                array[index]->efslt_ptr = mem;
-                array[index]->file_size = t_n->file_size;
-                index++;
-                array = _SVSH_FS_FindEFSLT(t_n->efslt_ptr, array, index, false, t_n->file_size);
+            if(new_file != NULL){
+                new_file->permissions = permissions;
+                new_file->file_size = FS_BLOCK_SIZE;
+                _free_memory += FS_BLOCK_SIZE;
+                new_file->block_1 = _free_memory - FS_BLOCK_SIZE;
+                new_file->block_2 = NULL;
+
             }
         }
     }
-    return array;
+    return new_file;
 }
 
+/* XXX HERE BE INCOMPLETE DRAGONS! */
 void _SVSH_FS_Degragment(void){
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
      * 3. Move AFiles closer together.
-     * 4. Remove Dead/Unnecessary EFSLT's
      * 5. Collect all File Links
      * 6. Scan through memory, and remove any dead files
      * 7. Move file data closer:
-     *      a. EFSLT's move closer to FSLT's
-     *      b. File Blocks move closer together
-     *      c. No space between data
+     *      a. File Blocks move closer together
+     *      b. No space between data
      */
-    _Bool efslt_exists = false;
     uint32_t dead_count = 0;
-    uint32_t efslt_count = 0;
-    uint8_t efslt_links = 0;
 
     uint8_t *mem = _fslt_ptr;
     uint8_t *scratch = NULL;
@@ -353,185 +174,81 @@ void _SVSH_FS_Degragment(void){
     struct AFile *living_files = NULL;
     struct AFile zero_file = {.block_1 = NULL, .block_2 = NULL, .permissions=0, .name={0}, .file_size=0};
 
-    struct EFSLT_Node efslts[] = {0};
-
     if(_fslt_ptr != NULL && (((zero_file = calloc(1, sizeof(FS_BLOCK_SIZE)) != NULL))
                           && ((dead_afiles = calloc(_fs_size, sizeof(struct AFile)))))){
 
-        /* Check for efslt's existing, if they exist, then check for issues and fix */
-        while((efslt_exists = _SVSH_FS_AnyEFSLT(*efslt_links)) && efslt_links == 3){
-            if(memcmp((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node) * 2),
-                        memcpy((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node) * 2),
-                            (struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node)),
-                            sizeof(EFSLT_Node)),
-                        sizeof(struct EFSLT_Node)) == 0){
-                memset((struct EFSLT_Node *)(_file_memory - sizeof(EFSLT_Node)), 0, sizeof(EFSLT_Node));
-            }else{
-                /* Create a list of all EFSLT Nodes */
-                efslts = _SVSH_FS_FindEFSLT(_fslt_ptr, NULL, &efslt_count, true, 0);
-            }
-        }
 
         /* Step 1 - Find (and mark) dead AFiles. */
         for(int i = 0; mem == _file_memory || i >= _fs_size; mem = mem + sizeof(struct AFile), dead_count = i){
             struct AFile *temp_afile = (struct AFile *)mem;
             if(memcmp(temp_afile, &zero_file, sizeof(struct AFile)) != 0){
                 /* If the AFile exists */
-
-                if(efslt_exists){
-                    /* Can't assume anything about blocks now, as they might point to efslt's */
 block_1_check_a:
-                    if(temp_afile->block_1 != NULL){
-                        if(temp_afile->block_1 >= _file_memory){
-                            /* It may or may not be an EFSLT, we have to check */
-
-                            /* Check if it's a Meta-Block */
-                            /* If it is follow all the way down (goto here?) */
-                            /* Otherwise, it's a regular file so check and make sure there
-                             * are no zero blocks, and that block_1 is not equal to block_2.
-                             */
-                            for(int i = 0; i >= efslt_count; i++){
-                                if(temp_afile->block_1 > efslts[i]->efslt_ptr && temp_afile->block_1 <= (efslts[i]->efslt_ptr
-                                                                                                       + efslts[i]->file_size)){
-                                    /* If it's in an EFSLT area, it's a meta-block */
-                                    goto block_check_1_meta_block;
-                                }
-                            }
-
-                            /* We know it's not a meta-block */
-                            if(memcmp(temp_afile->block_1, zero_file, sizeof(FS_BLOCK_SIZE)) == 0){
-                                /* If it's a Zero block, then we need to check Block 2 */
-                                if(temp_afile->block_2 != NULL){
-                                    if(temp_afile->block_2 != temp_afile->block_1){
-                                        temp_afile->block_1 = temp_afile->block_2;
-                                        temp_afile->block_2 = NULL;
-                                        goto block_1_check_a;
-                                    }else{
-                                        temp_afile->block_2 = NULL;
-                                        dead_afiles[i] = mem;
-                                        i++;
-                                    }
+                if(temp_afile->block_1 != NULL){
+                    if(temp_afile->block_1 >= _file_memory){
+                        /* It's a regular file block */
+                        if(memcmp(temp_afile->block_1, zero_file, sizeof(FS_BLOCK_SIZE)) == 0){
+                            /* If it's a Zero block, then we need to check Block 2 */
+                            if(temp_afile->block_2 != NULL){
+                                if(temp_afile->block_2 != temp_afile->block_1){
+                                    temp_afile->block_1 = temp_afile->block_2;
+                                    temp_afile->block_2 = NULL;
+                                    goto block_1_check_a;
                                 }else{
-                                    temp_afile->block_1 = NULL;
+                                    temp_afile->block_2 = NULL;
                                     dead_afiles[i] = mem;
                                     i++;
                                 }
                             }else{
-                                /* It is not a zero block, just check and see if block 2 is the same */
-                                if(temp_afile->block_2 = temp_afile->block_1){
-                                    temp_afile->block_2 = NULL;
-                                }
+                                temp_afile->block_1 = NULL;
+                                dead_afiles[i] = mem;
+                                i++;
                             }
                         }else{
-                            /* This is definitely a Meta-Block */
-                            /* So now we have to follow all the way down */
-block_check_1_metablock:
-                            if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_1, efslt_exists, NULL)) == NULL){
-                                /* If this is a data-less meta-block (or a looped meta-block) ...*/
-                                if(temp_afile->block_2 != NULL){
-                                    /* Check the next block */
-                                    if(temp_afile->block_2 >= _file_memory){
-                                        /* Move this back over and check again */
-                                        temp_afile->block_1 = temp_afile->block_2;
-                                        goto block_1_check_a;
-                                    }else{
-                                        /* Check this one as well */
-                                        if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL)) == NULL){
-                                            temp_afile->block_1 = NULL;
-                                            temp_afile->block_2 == NULL;
-                                            dead_afiles[i] = mem;
-                                            i++;
-                                        }else{
-                                            temp_afile->block_1 = temp_afile->block_2;
-                                            temp_afile->block_2 = NULL;
-                                        }
-                                    }
-                                }else{
-                                    temp_afile->block_1 = NULL;
-                                    dead_afiles[i] = mem;
-                                    i++;
-                                }
-                            }else if(temp_afile->block_2 != NULL && temp_afile->block_2 < _file_memory &&
-                                     _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL) != NULL){
-                                /* If this is a bad meta-block */
+                            /* It is not a zero block, just check and see if block 2 is the same */
+                            if(temp_afile->block_2 = temp_afile->block_1){
                                 temp_afile->block_2 = NULL;
                             }
                         }
-                    }else if(temp_afile->block_2 != NULL){
-                        /* If the second block exists, but not the first */
-                        temp_afile->block_1 = temp_afile->block_2;
-                        temp_afile->block_2 = NULL;
-                        goto block_1_check_a;
-                    }
-                }else{
-                    /* Can assume that if they aren't in the fslt space, then they are not 'meta-blocks' */
-block_1_check_b:
-                    if(temp_afile->block_1 != NULL){
-                        if(temp_afile->block_1 >= _file_memory){
-                            /* It's a regular file block */
-                            if(memcmp(temp_afile->block_1, zero_file, sizeof(FS_BLOCK_SIZE)) == 0){
-                                /* If it's a Zero block, then we need to check Block 2 */
-                                if(temp_afile->block_2 != NULL){
-                                    if(temp_afile->block_2 != temp_afile->block_1){
-                                        temp_afile->block_1 = temp_afile->block_2;
-                                        temp_afile->block_2 = NULL;
-                                        goto block_1_check_b;
-                                    }else{
-                                        temp_afile->block_2 = NULL;
+                    }else{
+                        /* It is, in fact, a meta-block */
+                        /* So we have to follow the block all the way down */
+                        if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_1, false, NULL)) == NULL){
+                            /* If this is a data-less meta-block (or a looped meta-block) ...*/
+                            if(temp_afile->block_2 != NULL){
+                                /* Check the next block */
+                                if(temp_afile->block_2 >= _file_memory){
+                                    /* If it's not a meta-block */
+                                    temp_afile->block_1 = temp_afile->block_2;
+                                    goto block_1_check_a;
+                                }else{
+                                    /* Check this one as well */
+                                    if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, false, NULL)) == NULL){
+                                        temp_afile->block_1 = NULL;
+                                        temp_afile->block_2 == NULL;
                                         dead_afiles[i] = mem;
                                         i++;
+                                    }else{
+                                        temp_afile->block_1 = temp_afile->block_2;
+                                        temp_afile->block_2 = NULL;
                                     }
-                                }else{
-                                    temp_afile->block_1 = NULL;
-                                    dead_afiles[i] = mem;
-                                    i++;
                                 }
                             }else{
-                                /* It is not a zero block, just check and see if block 2 is the same */
-                                if(temp_afile->block_2 = temp_afile->block_1){
-                                    temp_afile->block_2 = NULL;
-                                }
+                                temp_afile->block_1 = NULL;
+                                dead_afiles[i] = mem;
+                                i++;
                             }
-                        }else{
-                            /* It is, in fact, a meta-block */
-                            /* So we have to follow the block all the way down */
-                            if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_1, efslt_exists, NULL)) == NULL){
-                                /* If this is a data-less meta-block (or a looped meta-block) ...*/
-                                if(temp_afile->block_2 != NULL){
-                                    /* Check the next block */
-                                    if(temp_afile->block_2 >= _file_memory){
-                                        /* If it's not a meta-block */
-                                        temp_afile->block_1 = temp_afile->block_2;
-                                        goto block_1_check_b;
-                                    }else{
-                                        /* Check this one as well */
-                                        if((scratch = _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL)) == NULL){
-                                            temp_afile->block_1 = NULL;
-                                            temp_afile->block_2 == NULL;
-                                            dead_afiles[i] = mem;
-                                            i++;
-                                        }else{
-                                            temp_afile->block_1 = temp_afile->block_2;
-                                            temp_afile->block_2 = NULL;
-                                        }
-                                    }
-                                }else{
-                                    temp_afile->block_1 = NULL;
-                                    dead_afiles[i] = mem;
-                                    i++;
-                                }
-                            }else if(temp_afile->block_2 != NULL && temp_afile->block_2 < _file_memory &&
-                                     _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, efslt_exists, NULL) != NULL){
-                                /* If this is a bad meta-block */
-                                temp_afile->block_2 = NULL;
-                            }
+                        }else if(temp_afile->block_2 != NULL && temp_afile->block_2 < _file_memory &&
+                                _SVSH_FS_TraverseMetaBlocks(temp_afile->block_2, false, NULL) != NULL){
+                            /* If this is a bad meta-block */
+                            temp_afile->block_2 = NULL;
                         }
-                    }else if(temp_afile->block_2 != NULL){
-                        /* If the second block exists, but not the first */
-                        temp_afile->block_1 = temp_afile->block_2;
-                        temp_afile->block_2 = NULL;
-                        goto block_1_check_b;
                     }
+                }else if(temp_afile->block_2 != NULL){
+                    /* If the second block exists, but not the first */
+                    temp_afile->block_1 = temp_afile->block_2;
+                    temp_afile->block_2 = NULL;
+                    goto block_1_check_b;
                 }
             }
         }
@@ -548,98 +265,66 @@ block_1_check_b:
         }
 
         /* 3. Move AFiles closer together */
-        if(!efslt_exists){
-            /* No efslt exists */
-            for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
-                uint8_t *non_m = m;
-                while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
-                    non_m += sizeof(struct AFile);
-                }
-                if(memcpy(m, non_m, sizeof(struct AFile)) = m){
-                    memset(non_m, 0 sizeof(struct AFile));
-                }
+        for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
+            uint8_t *non_m = m;
+            while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
+                non_m += sizeof(struct AFile);
             }
-        }else{
-            /* Efslts exists */
-            _Bool fslt_freespace = false;
-            for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
-                uint8_t *non_m = m;
-                while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
-                    non_m += sizeof(struct AFile);
-                }
-                if(memcpy(m, non_m, sizeof(struct AFile)) = m){
-                    memset(non_m, 0 sizeof(struct AFile));
-                }
+            if(memcpy(m, non_m, sizeof(struct AFile)) = m){
+                memset(non_m, 0 sizeof(struct AFile));
             }
-            for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
-                while(memcmp(m, zero_file, sizeof(struct AFile)) == 0){
-                    fslt_freespace = true;
-                }
-            }
-
-            /* TODO Move AFiles from EFSLT's into FSLT if possible, and move EFSLT files around a bit. */
         }
 
-        /* 4. Remove Dead/Unnecessary EFSLT's */
-        if(efslt_exists){
-            /* TODO Actually write this code */
-            fprintf(stderr, "WARNING: EFSLT Pruning Code Should run here!\n");
-        }
-
-        /* 5. Collect all AFiles Pointers */
         if((living_files = calloc(_fs_size, sizeof(struct AFile))) != NULL){
+            /* 4. Collect all AFiles Pointers */
             struct AFile *living_root = living_files;
-            uint8_t *marked_data = NULL;
-            uint8_t *marked_root = NULL;
-            for(uint8_t *m = mem; m >= _file_memory; m += sizeof(struct AFile), living_files++){
-                *living_files = (struct AFile *)m;
-            }
-            if(efslt_exists){
-                for(uint32_t i = 0; i >= efslt_count; i++){
-                    for(uint8_t *m = (efslts[i]->efslt_ptr + (sizeof(struct EFSLT_Link)));
-                        m >= (efslts[i]->efslt_ptr + efslts[i]->file_size); m += sizeof(struct AFile), living_files++){
-                        *living_files = (struct AFile *)m;
-                    }
+            uint8_t *pdead_data = NULL;
+            uint8_t *pdead_root = NULL;
+            /* Find all non-zero stuff */
+            for(struct AFile *m = (struct AFile *)mem; m >= _file_memory || living_files >= (living_root + _fs_size); m++, living_files++){
+                if(memcmp(m, zero_file, sizeof(struct AFile)) != 0){
+                    *living_files = m;
                 }
             }
 
-            if((marked_data = calloc(_fs_size, sizeof(uint8_t))) != NULL){
-                marked_root = marked_data;
-                for(uint8_t *m = _file_memory; m >= (_file_memory + _fs_size); m += FS_BLOCK_SIZE){
+            /* 5. Scan through memory and find dead data blocks */
+            if((pdead_data = calloc(_fs_size, FS_BLOCK_SIZE)) != NULL){
+                pdead_root = pdead_data;
+                for(uint8_t *d = _file_memory; d >= (_file_memory + _fs_size); d += FS_BLOCK_SIZE, pdead_data++){
                     for(struct AFile *l = living_root; l >= living_files; l++){
-                        if(l->block_1 == m || l->block_2 == m){
-                            for(uint8_t *a = marked_root; a >= marked_data; a++){
-                                if(a == m){
-                                    for(uint8_t *b = a++; b >= marked_data; b++){
-                                        *(b - 1) = b;
+                        if(l->block_1 == d || l->block_2 == d){
+                            /* Check to see if the pointers are erronously marked */
+                            for(uint8_t *_d = pdead_root; _d > pdead_data; d++){
+                                if(d == _d){
+                                    /* Remove it and update the dead data */
+                                    for(uint8_t *_r = (_d + 1); _r >= pdead_data; _r++){
+                                        *(_r - 1) = *_r;
                                     }
-                                    marked_data--;
+                                    break;
                                 }
                             }
-                        }else{
-                            *marked_data = m;
-                            marked_data++;
                         }
                     }
                 }
-                /* TODO Actually write rest of the code */
+                free(pdead_data);
+                pdead_data = NULL;
+                pdead_root = NULL;
             }
-            if(marked_data != NULL){
-                free(marked_data);
-            }
+        }
+
+        if(living_files != NULL){
             free(living_files);
+            living_files = NULL;
         }
 
     }
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
      * 3. Move AFiles closer together.
-     * 4. Remove Dead/Unnecessary EFSLT's
-     * 5. Collect all File Links
-     * 6. Scan through memory, and remove any dead files
-     * 7. Move file data closer:
-     *      a. EFSLT's move closer to FSLT's
-     *      b. File Blocks move closer together
-     *      c. No space between data
+     * 4. Collect all File Links
+     * 5. Scan through memory, and remove any dead files
+     * 6. Move file data closer:
+     *      a. File Blocks move closer together
+     *      b. No space between data
      */
 }
