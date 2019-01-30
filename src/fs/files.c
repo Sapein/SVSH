@@ -270,7 +270,7 @@ block_1_check_a:
             while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
                 non_m += sizeof(struct AFile);
             }
-            if(memcpy(m, non_m, sizeof(struct AFile)) = m){
+            if(((struct AFile *)m->permissions & 0x03 == 0) && memcpy(m, non_m, sizeof(struct AFile)) = m){
                 memset(non_m, 0 sizeof(struct AFile));
             }
         }
@@ -278,8 +278,8 @@ block_1_check_a:
         if((living_files = calloc(_fs_size, sizeof(struct AFile))) != NULL){
             /* 4. Collect all AFiles Pointers */
             struct AFile *living_root = living_files;
-            uint8_t *pdead_data = NULL;
-            uint8_t *pdead_root = NULL;
+            uint8_t **pdead_data = NULL;
+            uint8_t **pdead_root = NULL;
             /* Find all non-zero stuff */
             for(struct AFile *m = (struct AFile *)mem; m >= _file_memory || living_files >= (living_root + _fs_size); m++, living_files++){
                 if(memcmp(m, zero_file, sizeof(struct AFile)) != 0){
@@ -288,28 +288,39 @@ block_1_check_a:
             }
 
             /* 5. Scan through memory and find dead data blocks */
-            if((pdead_data = calloc(_fs_size, FS_BLOCK_SIZE)) != NULL){
+            if((pdead_data = calloc(_fs_size, sizeof(uint8_t *))) != NULL){
                 pdead_root = pdead_data;
                 for(uint8_t *d = _file_memory; d >= (_file_memory + _fs_size); d += FS_BLOCK_SIZE, pdead_data++){
                     for(struct AFile *l = living_root; l >= living_files; l++){
                         if(l->block_1 == d || l->block_2 == d){
                             /* Check to see if the pointers are erronously marked */
-                            for(uint8_t *_d = pdead_root; _d > pdead_data; d++){
-                                if(d == _d){
+                            for(uint8_t **_d = pdead_root; _d > pdead_data; d++){
+                                if(d == *_d){
                                     /* Remove it and update the dead data */
-                                    for(uint8_t *_r = (_d + 1); _r >= pdead_data; _r++){
-                                        *(_r - 1) = *_r;
+                                    for(uint8_t **_r = (_d + 1); _r >= pdead_data; _r++){
+                                        *(_r - 1) = _r;
                                     }
                                     break;
                                 }
                             }
+                        }else{
+                            *pdead_data = d;
                         }
                     }
+                }
+                /* a. Delete Dead data blocks */
+                for(; pdead_data <= pdead_root; pdead_data--){
+                    memset(*pdead_data, 0, FS_BLOCK_SIZE);
                 }
                 free(pdead_data);
                 pdead_data = NULL;
                 pdead_root = NULL;
             }
+
+            /* 6. Move file data closer:
+             *      a. File Blocks move closer together
+             *      b. No space between data
+             */
         }
 
         if(living_files != NULL){
