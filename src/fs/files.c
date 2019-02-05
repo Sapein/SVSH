@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "files.h"
+#include "../kerrors.h"
 #include "../config.h"
-#define PANIC() fprintf(stderr, "KERNEL PANIC CALLED!\n")
 
 static uint8_t *_file_memory = NULL; /* The whole memory space, points to the start of the normal address space */
 static uint8_t *_free_memory = NULL; /* Points to the closest free memory */
@@ -386,7 +386,7 @@ block_1_check_a:
                             check_count++;
                             check_count_final = _SVSH_FS_BlockReorganize(&f->block_2, checked, checked_count);
                             if(checked_count_final < 0){
-                                PANIC();
+                                Panic();
                             }
                         }
                     }
