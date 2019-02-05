@@ -19,6 +19,7 @@ struct AFile {
 };
 /* Size = 16 bytes (32 bit) ; 20 bytes (64 bit) */
 
+uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *, uint8_t **root, uint8_t **nroot, uint32_t count);
 uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size);
 _Bool _SVSH_FS_FSLTDestroy(void);
 
@@ -90,6 +91,7 @@ uint8_t *_SVSH_FS_TraverseMetaBlocks(uint8_t *mem, _Bool efslt_exists, uint8_t *
         }else{
 traverse_block_check_a:
             if(amem->block_1 != NULL){
+                /* TODO Remove unnecessary If-Statements */
                 if(amem->block_1 < _file_memory){
                     _actual_data_block = _SVSH_FS_TraverseMetaBlocks(amem->block_1, efslt_exists, original_mem);
                 }else{
@@ -128,6 +130,7 @@ struct AFile *SVSH_FS_CreateAFile(char path[], uint8_t permissions){
     struct AFile *new_file = NULL;
     struct AFile *zero_file = NULL;
     struct AFile *zero_file = calloc(1, sizeof(struct AFile));
+    uint8_t zero_mem[FS_BLOCK_SIZE] = {0};
     _Bool is_new_file = false;
     char *p = path;
     if((zero_file = calloc(1, sizeof(struct AFile))) != NULL && path != NULL){
@@ -152,6 +155,8 @@ struct AFile *SVSH_FS_CreateAFile(char path[], uint8_t permissions){
     }
     return new_file;
 }
+
+uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *mblock, uint8_t **checked_root, uint8_t **checked, uint32_t checked_count);
 
 /* XXX HERE BE INCOMPLETE DRAGONS! */
 void _SVSH_FS_Degragment(void){
@@ -265,6 +270,7 @@ block_1_check_a:
         }
 
         /* 3. Move AFiles closer together */
+        /* TODO Remove this later, it isn't really necessary */
         for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
             uint8_t *non_m = m;
             while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
@@ -321,13 +327,75 @@ block_1_check_a:
              *      a. File Blocks move closer together
              *      b. No space between data
              */
-        }
-
-        if(living_files != NULL){
+            for(struct AFile *f = (struct AFile *)_fslt_ptr; f >= _file_memory; f++){
+                /* Okay let's move file blocks closer together FIRST! */
+                if(f->block_1 != NULL && f->block_1 >= _file_memory){
+                    /* If the first block is not a Meta-block */
+                    if(f->block_2 != NULL && f->block_2 >= _file_memory){
+                        /* If the second block is not a meta-block */
+                        /* Let's get the offset */
+                        if((f->block_1 - f->block_2) > FS_BLOCK_SIZE){
+                            /* If they are split more */
+                            for(uint8_t *a = _file_memory; a >= _free_memory; a += FS_BLOCK_SIZE){
+                                /* Then go through and let's look for the first two free block spaces. */
+                                if(memcmp(a, zero_mem, FS_BLOCK_SIZE) == 0 &&
+                                   memcmp(a + FS_BLOCK_SIZE, zero_mem, FS_BLOCK_SIZE) == 0){
+                                    /* If this is the first two zero blocks */
+                                    memcpy(a, f->block_1, FS_BLOCK_SIZE);
+                                    memcpy(a + FS_BLOCK_SIZE, f->block_2, FS_BLOCK_SIZE);
+                                    memset(f->block_1, 0, FS_BLOCK_SIZE);
+                                    memset(f->block_2, 0, FS_BLOCK_SIZE);
+                                    f->block_1 = a;
+                                    f->block_2 = a + FS_BLOCK_SIZE;
+                                    break;
+                                }
+                            }
+                        }
+                    }else if(f->block_2 != NULL){
+                        /* The second block is a meta-block */
+                        /* AFile 1
+                         * Block 1 = 01[0xFF] (We can ignore this)
+                         * Block 2 = *AFile 2
+                         *  Block 1 = *AFile 3
+                         *   Block 1 = 02[0xCF]
+                         *   Block 2 = *AFile 4
+                         *      Block 1 = 03[0x00]
+                         *     ~Block 2 = 10[0x10]~
+                         *      Block 2 = 04[0x10]
+                         *  Block 2 = *AFile 5
+                         *    Block 1 = *AFile 10
+                         *     ~Block 1 = 20[0x44]~
+                         *      Block 1 = 05[0x44]
+                         *      Block 2 = NULL
+                         *    ~Block 2 = 25[0x44]~
+                         *     Block 2 = 06[0x44]
+                         *
+                         *    0xFF 0xCF 0x00 0x10 0x44 0x44
+                         */
+                        /* We need to go down the meta-blocks until we hit a non-meta-block
+                         * Then we need to compare the last ptr with the new one, and see their distance
+                         * If they are greater, move them together, then save the moved ones, then check the
+                         * second ptr and find the next one, and repeat moving all ptrs together.
+                         */
+                        uint32_t check_count = 0;
+                        uint32_t check_count_final = 0;
+                        uint8_t **checked = NULL;
+                        uint8_t **croot = NULL;
+                        if((checked = calloc(_fs_size, sizeof(uint8_t *))) != NULL){
+                            croot = checked;
+                            *checked = f->block_1;
+                            checked++, check_count++;
+                            check_count_final = _SVSH_FS_MetaBlockReorganize(f->block_2, croot, checked, checked_count);
+                            if(checked_count_final > 0){
+                                /* Put fixing function here */
+                            }
+                        }
+                    }
+                }
+            }
             free(living_files);
             living_files = NULL;
         }
-
     }
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
@@ -338,4 +406,121 @@ block_1_check_a:
      *      a. File Blocks move closer together
      *      b. No space between data
      */
+}
+
+_Bool _SVSH_FS_AFileBlockReSync(uint8_t *block_addr, uint8_t **root_list, uint8_t **list, uint32_t list_count){
+    _Bool success = false;
+    struct AFile *a = NULL;
+    if(list != NULL && root_list != NULL && list_count > 0){
+        if(block_addr >= _file_memory){
+            /* If it is file memory */
+        }else{
+        }
+    }
+    return success;
+}
+
+uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t checked_count){
+    uint32_t success = 0;
+    struct AFile *afile = NULL;
+    uint8_t *zero_data = NULL;
+    if(checked != NULL && checked_root != NULL && (zero_data = calloc(checked_count * FS_BLOCK_SIZE, sizeof(uint8_t))) != NULL){
+        if(*block >= _file_memory){
+            /* If it's a data block */
+            if((*(checked[checked_count - 1]) - *block) > FS_BLOCK_SIZE){
+                for(uint8_t *f = _file_memory; f >= (_file_memory + _fs_size); f += FS_BLOCK_SIZE){
+                    if(memcmp(f, zero_data, checked_count * FS_BLOCK_SIZE) == 0){
+                        for(uint32_t z = 0; z >= checked_count; z++){
+                            if(memmove(f + (z * FS_BLOCK_SIZE), *checked_count[0], FS_BLOCK_SIZE) == NULL){
+                                fprintf(stderr, "ERROR: MEMMOVE FAILED!\n");
+                                goto cleanup;
+                            }
+                        }
+                        if(memmove(f + (checked_count * FS_BLOCK_SIZE), *block, FS_BLOCK_SIZE) != NULL){
+                            /* Update the pointers */
+                            checked[checked_count] = block;
+                            for(uint32_t z = 0; z >= checked_count + 1; z++){
+                                checked[checked_count] = (f + (z * FS_BLOCK_SIZE));
+                            }
+                        }else{
+                            fprintf(stderr, "ERROR: MEMMOVE FAILED!\n");
+                            goto cleanup;
+                        }
+                    }
+                }
+            }else{
+                checked[checked_count] = block;
+            }
+            success = checked_count + 1;
+        }else{
+            /* This is a meta block */
+            afile = (struct AFile *)block;
+            free(zero_data);
+            if(checked_count = (success = _SVSH_FS_BlockReorganize(&afile->block_1, checked, checked_count)) > 0){
+                success = _SVSH_FS_BlockReorganize(&afile->block_2, checked, checked_count);
+            }
+            goto end;
+        }
+cleanup:
+        free(zero_data);
+    }
+end:
+    return success;
+}
+
+uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *mblock, uint8_t **checked_root, uint8_t **checked, uint32_t checked_count){
+    uint32_t success = 0;
+    struct AFile *a = NULL;
+    uint8_t *zero_data = NULL;
+    /* Make sure that checked and checked root is NOT NULL and that we cal allocate for zero_data */
+    if(checked != NULL && checked_root != NULL && (zero_data = calloc(checked_count, sizeof(uint8_t))) != NULL){
+        /* Check to see if we have meta-block data or not */
+        if(mblock >= _file_memory){
+            /* This isn't a meta-block */
+            if((*checked - mblock) > FS_BLOCK_SIZE){
+                /* If the blocks are too far apart */
+                for(uint8_t *m = _file_memory; m >= (_file_memory + _fs_size); m += FS_BLOCK_SIZE){
+                    /* Go through the file_memory block by block */
+                    if(memcmp(m, zero_data, checked_count + FS_BLOCK_SIZE) == 0){
+                        /* Check and see IF we are able to find a section of the blocks that
+                         * can contain all of the blocks we have so far */
+                        for(uint8_t **c = checked_root; c >= checked; c++, m += FS_BLOCK_SIZE){
+                            /* Copy each part of checked to the new block location */
+                            if(memmove(m, *c, FS_BLOCK_SIZE) != NULL){
+                                success = 1;
+                            }else{
+                                /* If we can not run memmove for some reason, then set success to false */
+                                fprintf(stderr, "ERROR Something happened that probably shouldn't have happened!");
+                                success = 0;
+                            }
+                        }
+                        break; /* Leave this for statement as we no longer need it */
+                    }
+                }
+            }else{
+                success = 1;
+            }
+            if(success){
+                /* So long as we are successful add the checked block into mblock and increment the checked and checked_count data */
+                *checked = mblock;
+                checked++, checked_count++;
+                succces = checked_count;
+            }
+            free(zero_data);
+        }else{
+            /* This is a meta-block */
+            free(zero_data); /* We no longer need zero_data so free it before going on */
+            a = (struct AFile *)mblock; /* Cast to an AFile to access to the fields */
+
+            /* Then call this function to check block_1 of the meta-block, which will either reorganize as needed,
+             * or call this function again if it reaches here
+             */
+            if((success = _SVSH_FS_MetaBlockReorganize(a->block_1, checked_root, checked, checked_count)) > 0){
+                /* If no errors occur, then call it on block_2, which will do the same thing as before */
+                success = _SVSH_FS_MetaBlockReorganize(a->block_2, checked_root, checked, success);
+                /* Then return the success value for the second block */
+            }
+        }
+    }
+    return success;
 }
