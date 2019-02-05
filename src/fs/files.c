@@ -20,7 +20,7 @@ struct AFile {
 };
 /* Size = 16 bytes (32 bit) ; 20 bytes (64 bit) */
 
-uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *, uint8_t **root, uint8_t **nroot, uint32_t count);
+uint32_t _SVSH_FS_BlockReorganize(uint8_t **, uint8_t **checked[], uint32_t count);
 uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size);
 _Bool _SVSH_FS_FSLTDestroy(void);
 
