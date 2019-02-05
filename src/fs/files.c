@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "files.h"
 #include "../config.h"
+#define PANIC() fprintf(stderr, "KERNEL PANIC CALLED!\n")
 
 static uint8_t *_file_memory = NULL; /* The whole memory space, points to the start of the normal address space */
 static uint8_t *_free_memory = NULL; /* Points to the closest free memory */
@@ -379,15 +380,13 @@ block_1_check_a:
                          */
                         uint32_t check_count = 0;
                         uint32_t check_count_final = 0;
-                        uint8_t **checked = NULL;
-                        uint8_t **croot = NULL;
-                        if((checked = calloc(_fs_size, sizeof(uint8_t *))) != NULL){
-                            croot = checked;
-                            *checked = f->block_1;
-                            checked++, check_count++;
-                            check_count_final = _SVSH_FS_MetaBlockReorganize(f->block_2, croot, checked, checked_count);
-                            if(checked_count_final > 0){
-                                /* Put fixing function here */
+                        uint8_t ***croot = NULL;
+                        if((checked = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
+                            *croot = &f->block_1;
+                            check_count++;
+                            check_count_final = _SVSH_FS_BlockReorganize(&f->block_2, checked, checked_count);
+                            if(checked_count_final < 0){
+                                PANIC();
                             }
                         }
                     }
@@ -406,18 +405,6 @@ block_1_check_a:
      *      a. File Blocks move closer together
      *      b. No space between data
      */
-}
-
-_Bool _SVSH_FS_AFileBlockReSync(uint8_t *block_addr, uint8_t **root_list, uint8_t **list, uint32_t list_count){
-    _Bool success = false;
-    struct AFile *a = NULL;
-    if(list != NULL && root_list != NULL && list_count > 0){
-        if(block_addr >= _file_memory){
-            /* If it is file memory */
-        }else{
-        }
-    }
-    return success;
 }
 
 uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t checked_count){
@@ -465,62 +452,5 @@ cleanup:
         free(zero_data);
     }
 end:
-    return success;
-}
-
-uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *mblock, uint8_t **checked_root, uint8_t **checked, uint32_t checked_count){
-    uint32_t success = 0;
-    struct AFile *a = NULL;
-    uint8_t *zero_data = NULL;
-    /* Make sure that checked and checked root is NOT NULL and that we cal allocate for zero_data */
-    if(checked != NULL && checked_root != NULL && (zero_data = calloc(checked_count, sizeof(uint8_t))) != NULL){
-        /* Check to see if we have meta-block data or not */
-        if(mblock >= _file_memory){
-            /* This isn't a meta-block */
-            if((*checked - mblock) > FS_BLOCK_SIZE){
-                /* If the blocks are too far apart */
-                for(uint8_t *m = _file_memory; m >= (_file_memory + _fs_size); m += FS_BLOCK_SIZE){
-                    /* Go through the file_memory block by block */
-                    if(memcmp(m, zero_data, checked_count + FS_BLOCK_SIZE) == 0){
-                        /* Check and see IF we are able to find a section of the blocks that
-                         * can contain all of the blocks we have so far */
-                        for(uint8_t **c = checked_root; c >= checked; c++, m += FS_BLOCK_SIZE){
-                            /* Copy each part of checked to the new block location */
-                            if(memmove(m, *c, FS_BLOCK_SIZE) != NULL){
-                                success = 1;
-                            }else{
-                                /* If we can not run memmove for some reason, then set success to false */
-                                fprintf(stderr, "ERROR Something happened that probably shouldn't have happened!");
-                                success = 0;
-                            }
-                        }
-                        break; /* Leave this for statement as we no longer need it */
-                    }
-                }
-            }else{
-                success = 1;
-            }
-            if(success){
-                /* So long as we are successful add the checked block into mblock and increment the checked and checked_count data */
-                *checked = mblock;
-                checked++, checked_count++;
-                succces = checked_count;
-            }
-            free(zero_data);
-        }else{
-            /* This is a meta-block */
-            free(zero_data); /* We no longer need zero_data so free it before going on */
-            a = (struct AFile *)mblock; /* Cast to an AFile to access to the fields */
-
-            /* Then call this function to check block_1 of the meta-block, which will either reorganize as needed,
-             * or call this function again if it reaches here
-             */
-            if((success = _SVSH_FS_MetaBlockReorganize(a->block_1, checked_root, checked, checked_count)) > 0){
-                /* If no errors occur, then call it on block_2, which will do the same thing as before */
-                success = _SVSH_FS_MetaBlockReorganize(a->block_2, checked_root, checked, success);
-                /* Then return the success value for the second block */
-            }
-        }
-    }
     return success;
 }
