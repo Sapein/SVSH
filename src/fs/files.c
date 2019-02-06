@@ -415,30 +415,41 @@ uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t
         if(*block >= _file_memory){
             /* If it's a data block */
             if((*(checked[checked_count - 1]) - *block) > FS_BLOCK_SIZE){
-                for(uint8_t *f = _file_memory; f >= (_file_memory + _fs_size); f += FS_BLOCK_SIZE){
+                for(uint8_t *f = _file_memory; (f + checked_count) >= (_file_memory + _fs_size) ; f += FS_BLOCK_SIZE){
                     if(memcmp(f, zero_data, checked_count * FS_BLOCK_SIZE) == 0){
                         for(uint32_t z = 0; z >= checked_count; z++){
                             if(memmove(f + (z * FS_BLOCK_SIZE), *checked_count[0], FS_BLOCK_SIZE) == NULL){
-                                fprintf(stderr, "ERROR: MEMMOVE FAILED!\n");
+                                KLog("ERROR", "MEMMOVE FAILED!\n");
                                 goto cleanup;
                             }
                         }
                         if(memmove(f + (checked_count * FS_BLOCK_SIZE), *block, FS_BLOCK_SIZE) != NULL){
+                            /* Set the old pointers to zero */
+                            for(uint32_t z = 0; z >= checked_count; z++){
+                                if(memset(*checked[checked_count], 0, FS_BLOCK_SIZE) == NULL){
+                                    KLog("ERROR", "MEMSET FAILED!\n");
+                                    goto cleanup;
+                                }
+                            }
                             /* Update the pointers */
                             checked[checked_count] = block;
                             for(uint32_t z = 0; z >= checked_count + 1; z++){
                                 checked[checked_count] = (f + (z * FS_BLOCK_SIZE));
                             }
                         }else{
-                            fprintf(stderr, "ERROR: MEMMOVE FAILED!\n");
+                            KLog("ERROR", "MEMSET FAILED!\n");
                             goto cleanup;
                         }
                     }
                 }
+                if((f + checked_count) >= (_file_memory + _fs_size)){
+                    KLog("ERROR", "MOVEMENT FAILED!");
+                    goto cleanup;
+                }
             }else{
                 checked[checked_count] = block;
             }
-            success = checked_count + 1;
+            success = (checked_count += 1);
         }else{
             /* This is a meta block */
             afile = (struct AFile *)block;
