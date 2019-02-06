@@ -353,31 +353,6 @@ block_1_check_a:
                             }
                         }
                     }else if(f->block_2 != NULL){
-                        /* The second block is a meta-block */
-                        /* AFile 1
-                         * Block 1 = 01[0xFF] (We can ignore this)
-                         * Block 2 = *AFile 2
-                         *  Block 1 = *AFile 3
-                         *   Block 1 = 02[0xCF]
-                         *   Block 2 = *AFile 4
-                         *      Block 1 = 03[0x00]
-                         *     ~Block 2 = 10[0x10]~
-                         *      Block 2 = 04[0x10]
-                         *  Block 2 = *AFile 5
-                         *    Block 1 = *AFile 10
-                         *     ~Block 1 = 20[0x44]~
-                         *      Block 1 = 05[0x44]
-                         *      Block 2 = NULL
-                         *    ~Block 2 = 25[0x44]~
-                         *     Block 2 = 06[0x44]
-                         *
-                         *    0xFF 0xCF 0x00 0x10 0x44 0x44
-                         */
-                        /* We need to go down the meta-blocks until we hit a non-meta-block
-                         * Then we need to compare the last ptr with the new one, and see their distance
-                         * If they are greater, move them together, then save the moved ones, then check the
-                         * second ptr and find the next one, and repeat moving all ptrs together.
-                         */
                         uint32_t check_count = 0;
                         uint32_t check_count_final = 0;
                         uint8_t ***croot = NULL;
@@ -385,10 +360,27 @@ block_1_check_a:
                             *croot = &f->block_1;
                             check_count++;
                             check_count_final = _SVSH_FS_BlockReorganize(&f->block_2, checked, checked_count);
+                            free(croot);
                             if(checked_count_final < 0){
                                 Panic();
                             }
+                        }else{
+                            KPanic("FATAL", "Unable to allocate Space!\n");
                         }
+                    }else{
+                    }
+                }else if(f->block_1 != NULL){
+                    uint32_t check_count = 0;
+                    uint32_t check_count_final = 0;
+                    uint8_t ***croot = NULL;
+                    if((checked = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
+                        check_count_final = _SVSH_FS_BlockReorganize(&f->block_1, checked, checked_count);
+                        free(croot);
+                        if(checked_count_final < 0){
+                            Panic();
+                        }
+                    }else{
+                        KPanic("FATAL", "Unable to allocate Space!\n");
                     }
                 }
             }
