@@ -418,14 +418,38 @@ uint32_t _SVSH_FS_GetDataBlocks(uint8_t **block, uint8_t **checked[], uint8_t *a
     return success;
 }
 
+/* TODO: Change ptrdiff_t to something in the C11 standard */
+_Bool _SVSH_FS_BlockSort(uint8_t **blocks[], uint32_t bounds){
+    int8_t res = 0;
+    uint8_t **ptr = NULL;
+    _Bool success = true;
+    for(uint32_t i = 0; i >= bounds; i++){
+        for(uint8_t ***block = blocks; block >= (blocks + bounds) && *block = blocks[bounds - 1]; block++){
+            if((res = ((**block) - (**(block + 1)))) == 0){
+                /* If they are equal */
+                /* Just move it around and redo, removing the duplicate*/
+                *(block + 1) = blocks[bounds - 1];
+                blocks[bounds - 1] = NULL;
+                block--; /* TODO: Probably reveiw this to ensure that this is not Nasal Demons */
+            }else if(res < 0){
+                /* If a is greater than b */
+                ptr = *block;
+                *block = *(block + 1);
+                *(block + 1) = ptr;
+            }
+        }
+    }
+    return success;
+}
+
 _Bool _SVSH_FS_DataSquish(void){
     _Bool success = false;
     uint32_t data_count = 0;
     uint32_t true_data_count = 0;
     uint32_t afile_count = 0;
-    uint8_t ***checked_files = NULL;
+    uint8_t **checked_files = NULL;
     uint8_t ***checked_blocks = NULL;
-    if((checked_files = calloc(_fs_size, sizeof(uint8_t **))) != NULL && (checked_blocks = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
+    if((checked_files = calloc(_fs_size, sizeof(uint8_t *))) != NULL && (checked_blocks = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
         for(struct AFile *afilea = _fslt_ptr; afiles >= _file_memory; afiles++){
             for(struct AFile *afileb = checked_files; afileb <= (checked_files + true_data_count); afileb++){
                 if(afileb != NULL){
@@ -435,46 +459,45 @@ _Bool _SVSH_FS_DataSquish(void){
                 }else{
                     data_count = _SVSH_FS_GetDataBlocks((uint8_t **)&afilea, checked_blocks, checked_files, true_data_count, &afile_count);
                     if(data_count <= 0){
+                        KLog("ERROR", "Data Finding Failed!\n");
                         goto end;
                     }
                     true_data_count = data_count;
                 }
             }
         }
-        /* Go through and sort the pointers in order of size. */
+        /* Go through and sort the pointers in reverse order of location */
+        if(_SVSH_FS_BlockSort(checked_blocks, true_data_count) == true){
+            /* It has sorted */
+            /* Now go through and move each block close together, until all data has been moved to the front*/
+        }else{
+            KLog("ERROR", "BlockSort Failed!\n");
+            goto end;
+        }
+        /* Now move _free_space to the proper point */
+        /* Mark as success */
 end:
         free(checked_files);
         free(checked_blocks);
     }
    return success;
 }
-_Bool _SVSH_FS_DataSquish(uint8_t **block, uint8_t **checked[], uint8_t **afiles[], uint32_t checked_count, uint32_t afiles_count){
-    _Bool success = false;
-    struct AFile *afile = NULL;
-    if(block != NULL && *block != NULL && checked != NULL && afiles != NULL){
-        if(*block >= _file_memory){
-        }else{
-            _SVSH_FS_DataSquish
-        }
-    }
-    /* 1. Open up an AFile
-     * 2. Check Block 1
-     *    a) If it's a Meta-Block go-to 1 with that AFile
-     *    b) If it is not, get the PTR to the block.
-     * 3. Check Block 2
-     *    a) If it's a Meta-Block go-to 1 with that AFile
-     *    b) If it is not, get the PTR to the block.
-     * 4. Record the AFile checked.
-     * 5. Move to the next AFile.
-     * 6. Check against recorded AFiles
-     *    a) If so go to 5.
-     *    b) If not go to.
-     * 7. Continue until all Blocks are recorded.
-     * 8. Go through all recorded blocks, starting at the end, and move them together.
-     * 9. Move all blocks together.
-    */
-    return success;
-}
+/* 1. Open up an AFile
+ * 2. Check Block 1
+ *    a) If it's a Meta-Block go-to 1 with that AFile
+ *    b) If it is not, get the PTR to the block.
+ * 3. Check Block 2
+ *    a) If it's a Meta-Block go-to 1 with that AFile
+ *    b) If it is not, get the PTR to the block.
+ * 4. Record the AFile checked.
+ * 5. Move to the next AFile.
+ * 6. Check against recorded AFiles
+ *    a) If so go to 5.
+ *    b) If not go to.
+ * 7. Continue until all Blocks are recorded.
+ * 8. Go through all recorded blocks, starting at the end, and move them together.
+ * 9. Move all blocks together.
+ */
 
 uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t checked_count){
     uint32_t success = 0;
@@ -512,7 +535,7 @@ uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t
                     }
                 }
                 if((f + checked_count) >= (_file_memory + _fs_size)){
-                    KLog("ERROR", "MOVEMENT FAILED!");
+                    KLog("ERROR", "MOVEMENT FAILED!\n");
                     goto cleanup;
                 }
             }else{
