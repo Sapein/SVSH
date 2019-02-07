@@ -399,6 +399,83 @@ block_1_check_a:
      */
 }
 
+uint32_t _SVSH_FS_GetDataBlocks(uint8_t **block, uint8_t **checked[], uint8_t *afiles[], uint32_t checked_count, uint32_t *afiles_count){
+    uint32_t success = 0;
+    struct AFile *afile = NULL;
+    if(block != NULL && *block != NULL && checked != NULL && afiles != NULL && afiles_count != NULL){
+        if(*block >= _file_memory){
+            checked[checked_count] = block;
+            success = (checked += 1);
+        }else{
+            afile = (struct AFile *)*block;
+            afiles[*afiles_count] = *block;
+            *afiles_count++;
+            if((success = _SVSH_FS_GetDataBlocks(&afile->block_1, checked, afiles, checked_count, afiles_count)) > 0){
+                success = _SVSH_FS_GetDataBlocks(&afile->block_2, checked, afiles, checked_count, afiles_count);
+            }
+        }
+    }
+    return success;
+}
+
+_Bool _SVSH_FS_DataSquish(void){
+    _Bool success = false;
+    uint32_t data_count = 0;
+    uint32_t true_data_count = 0;
+    uint32_t afile_count = 0;
+    uint8_t ***checked_files = NULL;
+    uint8_t ***checked_blocks = NULL;
+    if((checked_files = calloc(_fs_size, sizeof(uint8_t **))) != NULL && (checked_blocks = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
+        for(struct AFile *afilea = _fslt_ptr; afiles >= _file_memory; afiles++){
+            for(struct AFile *afileb = checked_files; afileb <= (checked_files + true_data_count); afileb++){
+                if(afileb != NULL){
+                    if(afileb == afilea){
+                        break;
+                    }
+                }else{
+                    data_count = _SVSH_FS_GetDataBlocks((uint8_t **)&afilea, checked_blocks, checked_files, true_data_count, &afile_count);
+                    if(data_count <= 0){
+                        goto end;
+                    }
+                    true_data_count = data_count;
+                }
+            }
+        }
+        /* Go through and sort the pointers in order of size. */
+end:
+        free(checked_files);
+        free(checked_blocks);
+    }
+   return success;
+}
+_Bool _SVSH_FS_DataSquish(uint8_t **block, uint8_t **checked[], uint8_t **afiles[], uint32_t checked_count, uint32_t afiles_count){
+    _Bool success = false;
+    struct AFile *afile = NULL;
+    if(block != NULL && *block != NULL && checked != NULL && afiles != NULL){
+        if(*block >= _file_memory){
+        }else{
+            _SVSH_FS_DataSquish
+        }
+    }
+    /* 1. Open up an AFile
+     * 2. Check Block 1
+     *    a) If it's a Meta-Block go-to 1 with that AFile
+     *    b) If it is not, get the PTR to the block.
+     * 3. Check Block 2
+     *    a) If it's a Meta-Block go-to 1 with that AFile
+     *    b) If it is not, get the PTR to the block.
+     * 4. Record the AFile checked.
+     * 5. Move to the next AFile.
+     * 6. Check against recorded AFiles
+     *    a) If so go to 5.
+     *    b) If not go to.
+     * 7. Continue until all Blocks are recorded.
+     * 8. Go through all recorded blocks, starting at the end, and move them together.
+     * 9. Move all blocks together.
+    */
+    return success;
+}
+
 uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t checked_count){
     uint32_t success = 0;
     struct AFile *afile = NULL;
