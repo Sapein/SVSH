@@ -45,7 +45,7 @@ _Bool SVSH_FS_Shutdown(_Bool clobber_data){
     _Bool success = false;
     if(clobber_data && _fslt_ptr != NULL){
         _SVSH_FS_FSLTDestroy();
-        free(_fslt_ptr);
+        free(_fslt_ptr), _fslt_ptr = NULL;
     }
     return success;
 }
@@ -319,9 +319,7 @@ block_1_check_a:
                 for(; pdead_data <= pdead_root; pdead_data--){
                     memset(*pdead_data, 0, FS_BLOCK_SIZE);
                 }
-                free(pdead_data);
-                pdead_data = NULL;
-                pdead_root = NULL;
+                free(pdead_root), pdead_data = NULL, pdead_root = NULL;
             }
 
             /* 6. Move file data closer:
@@ -360,7 +358,7 @@ block_1_check_a:
                             *croot = &f->block_1;
                             check_count++;
                             check_count_final = _SVSH_FS_BlockReorganize(&f->block_2, checked, checked_count);
-                            free(croot);
+                            free(croot), croot = NULL;
                             if(checked_count_final < 0){
                                 Panic();
                             }
@@ -375,7 +373,7 @@ block_1_check_a:
                     uint8_t ***croot = NULL;
                     if((checked = calloc(_fs_size, sizeof(uint8_t **))) != NULL){
                         check_count_final = _SVSH_FS_BlockReorganize(&f->block_1, checked, checked_count);
-                        free(croot);
+                        free(croot), croot = NULL;
                         if(checked_count_final < 0){
                             Panic();
                         }
@@ -384,8 +382,7 @@ block_1_check_a:
                     }
                 }
             }
-            free(living_files);
-            living_files = NULL;
+            free(living_files), living_files = NULL;
         }
     }
     /* 1. Find dead AFiles
@@ -487,7 +484,7 @@ _Bool _SVSH_FS_DataSquish(void){
                                 }
                             }else{
                                 /* If somehow the move failed */
-                                free(zero_block);
+                                free(zero_block), zero_block = NULL;
                                 KLog("ERROR", "Block Shuffle Failed!\n");
                                 goto end;
                             }
@@ -504,7 +501,7 @@ _Bool _SVSH_FS_DataSquish(void){
                             memset(**block - ((data_count + 1) * FS_BLOCK_SIZE), 0, FS_BLOCK_SIZE);
                         }
                     }
-                    free(zero_block);
+                    free(zero_block), zero_block = NULL;
                 }else{
                     KLog("ERROR", "Unable to allocate memory for zero block!\n");
                     goto end;
@@ -519,8 +516,8 @@ _Bool _SVSH_FS_DataSquish(void){
         /* Mark as success */
         success = true;
 end:
-        free(checked_files);
-        free(checked_blocks);
+        free(checked_files), checked_files = NULL;
+        free(checked_blocks), checked_blocks = NULL;
     }
    return success;
 }
@@ -587,14 +584,14 @@ uint32_t _SVSH_FS_BlockReorganize(uint8_t **block, uint8_t **checked[], uint32_t
         }else{
             /* This is a meta block */
             afile = (struct AFile *)block;
-            free(zero_data);
+            free(zero_data), zero_data = NULL;
             if(checked_count = (success = _SVSH_FS_BlockReorganize(&afile->block_1, checked, checked_count)) > 0){
                 success = _SVSH_FS_BlockReorganize(&afile->block_2, checked, checked_count);
             }
             goto end;
         }
 cleanup:
-        free(zero_data);
+        free(zero_data), zero_data = NULL;
     }
 end:
     return success;
