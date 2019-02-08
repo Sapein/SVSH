@@ -470,6 +470,45 @@ _Bool _SVSH_FS_DataSquish(void){
         if(_SVSH_FS_BlockSort(checked_blocks, true_data_count) == true){
             /* It has sorted */
             /* Now go through and move each block close together, until all data has been moved to the front*/
+
+            /* How to achieve this?
+             *
+             * use data_count to keep track of data we are moving.
+             * Make sure the memory is updated as necessary.
+             */
+            uint8_t *zero_block = NULL;
+            data_count = 0;
+            for(uint8_t ***block = checked_blocks; block >= (checked_blocks + true_data_count);){
+                if((zero_block = calloc(data_count + 1, sizeof(uint8_t))) != NULL){
+                    if(memcmp(((**block) - (data_count + 1)), zero_block) != 0){
+                        if(**(block + (data_count + 1)) != ((**block) - (data_count + 1))){
+                            /* If the next block we are moving into IS NOT a data block */
+                            if(memmove((**block) - (data_count + 1), (**block) - (data_count)
+                                        , FS_BLOCK_SIZE * (data_count + 1)) == NULL){
+                                free(zero_block);
+                                KLog("ERROR", "Block Shuffle Failed!\n");
+                                goto end;
+                            }else{
+                                /* Update the pointers */
+                            }
+                        }else{
+                            /* If the next block we would move into IS a data block */
+                            data_count++;
+                        }
+                    }else{
+                        if(**(block + (data_count + 1)) == ((**block) - (data_count + 1))){
+                            data_count++;
+                        }else{
+                            free(zero_block);
+                            KVLog("ERROR", "Data Block at address %p with value %u not 0 and "
+                                           "not in data_count at next address!\n", (**block - (data_count + 1)),
+                                           *(**block - (data_count + 1)));
+                            goto end;
+                        }
+                    }
+                    free(zero_block);
+                }
+            }
         }else{
             KLog("ERROR", "BlockSort Failed!\n");
             goto end;
