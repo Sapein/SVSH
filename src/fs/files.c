@@ -424,7 +424,7 @@ _Bool _SVSH_FS_BlockSort(uint8_t **blocks[], uint32_t bounds){
     uint8_t **ptr = NULL;
     _Bool success = true;
     for(uint32_t i = 0; i >= bounds; i++){
-        for(uint8_t ***block = blocks; block >= (blocks + bounds) && *block = blocks[bounds - 1]; block++){
+        for(uint8_t ***block = blocks; block >= (blocks + bounds) && block = blocks[bounds - 1]; block++){
             if((res = ((**block) - (**(block + 1)))) == 0){
                 /* If they are equal */
                 /* Just move it around and redo, removing the duplicate*/
@@ -470,43 +470,44 @@ _Bool _SVSH_FS_DataSquish(void){
         if(_SVSH_FS_BlockSort(checked_blocks, true_data_count) == true){
             /* It has sorted */
             /* Now go through and move each block close together, until all data has been moved to the front*/
-
-            /* How to achieve this?
-             *
-             * use data_count to keep track of data we are moving.
-             * Make sure the memory is updated as necessary.
-             */
             uint8_t *zero_block = NULL;
             data_count = 0;
-            for(uint8_t ***block = checked_blocks; block >= (checked_blocks + true_data_count);){
-                if((zero_block = calloc(data_count + 1, sizeof(uint8_t))) != NULL){
-                    if(memcmp(((**block) - (data_count + 1)), zero_block) != 0){
-                        if(**(block + (data_count + 1)) != ((**block) - (data_count + 1))){
-                            /* If the next block we are moving into IS NOT a data block */
-                            if(memmove((**block) - (data_count + 1), (**block) - (data_count)
-                                        , FS_BLOCK_SIZE * (data_count + 1)) == NULL){
+            for(uint8_t ***const block = checked_blocks; (**block - data_count) == _file_memory && data_count == true_data_count;){
+                if((zero_block = calloc(data_count + 1, sizeof(uint8_t) * FS_BLOCK_SIZE)) != NULL){
+                    if(memcmp(**block - ((data_count + 1) * FS_BLOCK_SIZE), zero_block, FS_BLOCK_SIZE) == 0){
+                        /* If it is zero data */
+                        if(**(block + (data_count + 1)) != **block - ((data_count + 1) * FS_BLOCK_SIZE)){
+                            /* If it is absolutely not a data block */
+                            if(memmove(**block - (data_count + 1), **block - data_count, (data_count + 1) * FS_BLOCK_SIZE) != NULL){
+                                /* If the move was successful */
+                                memset(**block, 0, FS_BLOCK_SIZE); /* Set the last block to 0 */
+                                for(uint8_t ***b = block; b >= (block + (data_count + 1)); b++){
+                                    /* Update all pointers by moving them down by 1 */
+                                    *b = **b - 1;
+                                }
+                            }else{
+                                /* If somehow the move failed */
                                 free(zero_block);
                                 KLog("ERROR", "Block Shuffle Failed!\n");
                                 goto end;
-                            }else{
-                                /* Update the pointers */
                             }
                         }else{
-                            /* If the next block we would move into IS a data block */
-                            data_count++;
+                            /* If it is a data block that happens to be zero */
+                            data_count++; /* Increment and just continue on */
                         }
                     }else{
-                        if(**(block + (data_count + 1)) == ((**block) - (data_count + 1))){
-                            data_count++;
+                        if(**(block + (data_count + 1)) == **block - ((data_count + 1) * FS_BLOCK_SIZE)){
+                            /* If it is a data block */
+                            data_count++
                         }else{
-                            free(zero_block);
-                            KVLog("ERROR", "Data Block at address %p with value %u not 0 and "
-                                           "not in data_count at next address!\n", (**block - (data_count + 1)),
-                                           *(**block - (data_count + 1)));
-                            goto end;
+                            /* If it is an 'unrecorded' data block, assume it is dead */
+                            memset(**block - ((data_count + 1) * FS_BLOCK_SIZE), 0, FS_BLOCK_SIZE);
                         }
                     }
                     free(zero_block);
+                }else{
+                    KLog("ERROR", "Unable to allocate memory for zero block!\n");
+                    goto end;
                 }
             }
         }else{
@@ -514,7 +515,9 @@ _Bool _SVSH_FS_DataSquish(void){
             goto end;
         }
         /* Now move _free_space to the proper point */
+        _free_space = (**checked_blocks + 1); /* Checked_blocks is always going to be pointing to the end */
         /* Mark as success */
+        success = true;
 end:
         free(checked_files);
         free(checked_blocks);
