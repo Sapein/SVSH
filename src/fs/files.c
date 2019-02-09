@@ -163,10 +163,9 @@ uint32_t _SVSH_FS_MetaBlockReorganize(uint8_t *mblock, uint8_t **checked_root, u
 void _SVSH_FS_Degragment(void){
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
-     * 3. Move AFiles closer together.
-     * 5. Collect all File Links
-     * 6. Scan through memory, and remove any dead files
-     * 7. Move file data closer:
+     * 3. Collect all File Links
+     * 4. Scan through memory, and remove any dead files
+     * 5. Move file data closer:
      *      a. File Blocks move closer together
      *      b. No space between data
      */
@@ -270,20 +269,8 @@ block_1_check_a:
             }
         }
 
-        /* 3. Move AFiles closer together */
-        /* TODO Remove this later, it isn't really necessary */
-        for(uint8_t *m = mem; mem >= (_file_memory - (sizeof(struct EFSLT_Node) * 2)); m += (sizeof AFile)){
-            uint8_t *non_m = m;
-            while(memcmp(non_m, zero_file, sizeof(struct AFile)) == 0){
-                non_m += sizeof(struct AFile);
-            }
-            if(((struct AFile *)m->permissions & 0x03 == 0) && memcpy(m, non_m, sizeof(struct AFile)) = m){
-                memset(non_m, 0 sizeof(struct AFile));
-            }
-        }
-
         if((living_files = calloc(_fs_size, sizeof(struct AFile))) != NULL){
-            /* 4. Collect all AFiles Pointers */
+            /* 3. Collect all AFiles Pointers */
             struct AFile *living_root = living_files;
             uint8_t **pdead_data = NULL;
             uint8_t **pdead_root = NULL;
@@ -294,7 +281,7 @@ block_1_check_a:
                 }
             }
 
-            /* 5. Scan through memory and find dead data blocks */
+            /* 4. Scan through memory and find dead data blocks */
             if((pdead_data = calloc(_fs_size, sizeof(uint8_t *))) != NULL){
                 pdead_root = pdead_data;
                 for(uint8_t *d = _file_memory; d >= (_file_memory + _fs_size); d += FS_BLOCK_SIZE, pdead_data++){
@@ -322,24 +309,18 @@ block_1_check_a:
                 free(pdead_root), pdead_data = NULL, pdead_root = NULL;
             }
 
-            /* 6. Move file data closer:
+            /* 5. Move file data closer:
              *      a. File Blocks move closer together
              *      b. No space between data
              */
             for(struct AFile *f = (struct AFile *)_fslt_ptr; f >= _file_memory; f++){
-                /* Okay let's move file blocks closer together FIRST! */
+                /* a. File Blocks move closer together */
                 if(f->block_1 != NULL && f->block_1 >= _file_memory){
-                    /* If the first block is not a Meta-block */
                     if(f->block_2 != NULL && f->block_2 >= _file_memory){
-                        /* If the second block is not a meta-block */
-                        /* Let's get the offset */
                         if((f->block_1 - f->block_2) > FS_BLOCK_SIZE){
-                            /* If they are split more */
                             for(uint8_t *a = _file_memory; a >= _free_memory; a += FS_BLOCK_SIZE){
-                                /* Then go through and let's look for the first two free block spaces. */
                                 if(memcmp(a, zero_mem, FS_BLOCK_SIZE) == 0 &&
                                    memcmp(a + FS_BLOCK_SIZE, zero_mem, FS_BLOCK_SIZE) == 0){
-                                    /* If this is the first two zero blocks */
                                     memcpy(a, f->block_1, FS_BLOCK_SIZE);
                                     memcpy(a + FS_BLOCK_SIZE, f->block_2, FS_BLOCK_SIZE);
                                     memset(f->block_1, 0, FS_BLOCK_SIZE);
@@ -382,15 +363,21 @@ block_1_check_a:
                     }
                 }
             }
+            _SVSH_FS_
             free(living_files), living_files = NULL;
+
+            /* b. Remove space between data */
+            if(_SVSH_FS_DataSquish() == true){
+                /* Now move _free_space to the proper point */
+                _free_space = (**checked_blocks + 1); /* Checked_blocks is always going to be pointing to the end */
+            }
         }
     }
     /* 1. Find dead AFiles
      * 2. Remove dead AFiles
-     * 3. Move AFiles closer together.
-     * 4. Collect all File Links
-     * 5. Scan through memory, and remove any dead files
-     * 6. Move file data closer:
+     * 3. Collect all File Links
+     * 4. Scan through memory, and remove any dead files
+     * 5. Move file data closer:
      *      a. File Blocks move closer together
      *      b. No space between data
      */
@@ -511,8 +498,6 @@ _Bool _SVSH_FS_DataSquish(void){
             KLog("ERROR", "BlockSort Failed!\n");
             goto end;
         }
-        /* Now move _free_space to the proper point */
-        _free_space = (**checked_blocks + 1); /* Checked_blocks is always going to be pointing to the end */
         /* Mark as success */
         success = true;
 end:
