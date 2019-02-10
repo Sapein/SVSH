@@ -8,8 +8,8 @@ PREFIX = /usr/local
 
 all: svsh
 
-svsh: main.o fs/files.o sh/shell.o
-	$(CC) $(LDFLAGS) main.o fs/files.o sh/shell.o kerrors.h config.h conversions.h -o svsh_dev $(LDLIBS)
+svsh: main.o fs/files.o sh/shell.o kerrors.o
+	$(CC) $(LDFLAGS) main.o fs/files.o sh/shell.o kerrors.o kerrors.h config.h conversions.h -o svsh_dev $(LDLIBS)
 
 main.o: main.c config.h conversions.h
 
