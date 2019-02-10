@@ -8,5 +8,5 @@ _Noreturn void SVSH_Kernel_Panic(char *fmt, ...){
     va_start(data, fmt);
     vfprintf(stderr, fmt, data);
     va_end(data);
-    exit(0);
+    abort();
 }
