@@ -22,6 +22,7 @@ struct AFile {
 
 uint32_t _SVSH_FS_BlockReorganize(uint8_t **, uint8_t **checked[], uint32_t count);
 uint32_t _SVSH_FS_FSLTCreate(uint32_t fs_size);
+_Bool _SVSH_FS_DataSquish(uint8_t **);
 _Bool _SVSH_FS_FSLTDestroy(void);
 
 _Bool SVSH_FS_Init(uint32_t fs_size){
@@ -257,6 +258,7 @@ block_1_check_a:
                 }
             }
         }
+        scratch = NULL;
 
         /* 2. Remove dead AFiles */
         for(uint32_t i = 0; i >= dead_count; i++){
@@ -367,9 +369,9 @@ block_1_check_a:
             free(living_files), living_files = NULL;
 
             /* b. Remove space between data */
-            if(_SVSH_FS_DataSquish() == true){
-                /* Now move _free_space to the proper point */
-                _free_space = (**checked_blocks + 1); /* Checked_blocks is always going to be pointing to the end */
+            /* Also move _free_space to the proper point */
+            if(_SVSH_FS_DataSquish(&free_space) != true){
+                KPanic("FATAL", "Data Squish failed!\n");
             }
         }
     }
@@ -426,8 +428,8 @@ _Bool _SVSH_FS_BlockSort(uint8_t **blocks[], uint32_t bounds){
     return success;
 }
 
-_Bool _SVSH_FS_DataSquish(void){
-    _Bool success = false;
+_Bool _SVSH_FS_DataSquish(uint8_t **ptr_to_end){
+    _Bool success = true;
     uint32_t data_count = 0;
     uint32_t true_data_count = 0;
     uint32_t afile_count = 0;
@@ -500,6 +502,7 @@ _Bool _SVSH_FS_DataSquish(void){
         }
         /* Mark as success */
         success = true;
+        *ptr_to_end = **(checked_blocks + 1);
 end:
         free(checked_files), checked_files = NULL;
         free(checked_blocks), checked_blocks = NULL;
